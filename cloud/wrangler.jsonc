@@ -1,0 +1,18 @@
+{
+  // Reel's sharing server. Each user deploys it to their own Cloudflare account.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reel",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true, "traces": { "enabled": true } },
+  "r2_buckets": [{ "binding": "VIDEOS", "bucket_name": "reel-videos" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "reel", "database_id": "REPLACE_ON_SETUP", "migrations_dir": "migrations" }],
+  "vars": {
+    // Hard caps kept under the R2 free tier (10 GB, 1M writes, 10M reads per month), so the account never pays.
+    "STORAGE_CAP_BYTES": "9000000000",
+    "WRITE_OPS_CAP_MONTH": "900000",
+    "READ_OPS_CAP_MONTH": "9000000"
+  }
+  // Secrets: OWNER_TOKEN (the Mac app's key) and SIGNING_KEY (viewer cookies). Set with: wrangler secret put <NAME>
+}
