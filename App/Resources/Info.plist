@@ -14,6 +14,7 @@
   <key>NSHighResolutionCapable</key><true/>
   <key>NSCameraUsageDescription</key><string>Reel affiche ta caméra dans une bulle pendant l'enregistrement.</string>
   <key>NSMicrophoneUsageDescription</key><string>Reel enregistre ta voix avec la vidéo.</string>
+  <key>NSAppleEventsUsageDescription</key><string>En mode agent, Reel lit l'adresse de l'onglet ouvert à chaque clic, pour que l'agent sache sur quelle page tu étais.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>Reel transcrit tes vidéos sur ton Mac pour les sous-titres et le montage.</string>
 </dict>
 </plist>

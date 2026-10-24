@@ -82,24 +82,38 @@ public enum VideoAI {
 
     @concurrent
     public static func insights(for transcript: Transcript, duration: Double) async throws -> VideoInsights {
-        if let reason = unavailableReason { throw VideoAIError.unavailable(reason) }
         guard !transcript.words.isEmpty else { throw VideoAIError.emptyTranscript }
-        let session = LanguageModelSession(instructions: """
-            You help people share screen recordings. You read a timestamped transcript and describe the video \
-            accurately, in the transcript's language. Never invent facts that are not in the transcript. \
-            Each transcript line starts with its number in brackets.
-            """)
-        let sentences = Self.sentences(transcript, maxWords: 1800)
+        let sentences = Self.sentences(transcript, maxWords: AIEngine.current == .claude ? 60_000 : 1800)
         let numbered = sentences.enumerated().map { "[\($0.offset + 1)] \($0.element.text)" }.joined(separator: "\n")
-        let response = try await session.respond(
-            to: "Video length: \(Int(duration)) seconds.\n\nTranscript:\n\(numbered)",
-            generating: VideoInsights.self
-        )
-        var insights = response.content
+
+        var insights: VideoInsights
+        if AIEngine.current == .claude {
+            guard let key = ClaudeKey.load() else { throw ClaudeError.missingKey }
+            let reply = try await claudeInsights(numbered: numbered, duration: duration, key: key)
+            insights = VideoInsights(
+                title: reply.title,
+                summary: reply.summary,
+                chapters: reply.chapters.map { .init(line: $0.line, title: $0.title, start: 0) },
+                tasks: reply.tasks,
+                callToAction: reply.cta
+            )
+        } else {
+            if let reason = unavailableReason { throw VideoAIError.unavailable(reason) }
+            let session = LanguageModelSession(instructions: """
+                You help people share screen recordings. You read a transcript and describe the video \
+                accurately, in the transcript's language. Never invent facts that are not in the transcript. \
+                Each transcript line starts with its number in brackets.
+                """)
+            insights = try await session.respond(
+                to: "Video length: \(Int(duration)) seconds.\n\nTranscript:\n\(numbered)",
+                generating: VideoInsights.self
+            ).content
+        }
+
         // Turn line numbers into times; keep one chapter per line, in order, the first at 0.
         var seen = Set<Int>()
         insights.chapters = insights.chapters
-            .filter { (1...sentences.count).contains($0.line) && seen.insert($0.line).inserted }
+            .filter { (1...max(1, sentences.count)).contains($0.line) && seen.insert($0.line).inserted && $0.line <= sentences.count }
             .sorted { $0.line < $1.line }
             .map { chapter in
                 var chapter = chapter
@@ -113,8 +127,15 @@ public enum VideoAI {
 
     @concurrent
     public static func document(_ kind: DocumentKind, for transcript: Transcript, title: String) async throws -> String {
-        if let reason = unavailableReason { throw VideoAIError.unavailable(reason) }
         guard !transcript.words.isEmpty else { throw VideoAIError.emptyTranscript }
+        if AIEngine.current == .claude {
+            guard let key = ClaudeKey.load() else { throw ClaudeError.missingKey }
+            return try await ClaudeClient(apiKey: key).respond(
+                system: "You turn a narrated screen recording into a written document, in the transcript's language. Use only what the speaker says. \(kind.instructions)",
+                prompt: "Video title: \(title)\n\nTranscript:\n\(timestampedLines(transcript, maxWords: 60_000))"
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let reason = unavailableReason { throw VideoAIError.unavailable(reason) }
         let session = LanguageModelSession(instructions: """
             You turn a narrated screen recording into a written document, in the transcript's language. \
             Use only what the speaker says. \(kind.instructions)

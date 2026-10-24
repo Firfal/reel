@@ -131,3 +131,25 @@ import Testing
         #expect(cuts[0].lowerBound <= 0.8 && cuts[0].upperBound >= 1.3 && cuts[0].upperBound < 1.4)
     }
 }
+
+@Suite struct AgentPlanTests {
+    @Test func `the plan lists each click with its place, address, words and screenshot`() {
+        let events = [
+            AgentEvent(time: 4.2, kind: .click, x: 812, y: 430, app: "Safari", window: "Panier", url: "https://app.exemple.fr/panier",
+                       target: "Passer commande", screenshot: "step-1.png"),
+            AgentEvent(time: 9, kind: .rightClick, x: 100, y: 200, app: "Finder", window: nil, url: nil, target: nil, screenshot: "step-2.png"),
+        ]
+        let transcript = Transcript(locale: "fr_FR", words: [
+            TranscriptWord(text: "Je", start: 3.5, end: 3.7),
+            TranscriptWord(text: "valide", start: 3.7, end: 4.1),
+            TranscriptWord(text: "le", start: 4.1, end: 4.2),
+            TranscriptWord(text: "panier.", start: 4.2, end: 4.6),
+        ])
+        let plan = AgentPlan.markdown(title: "Bug paiement", events: events, transcript: transcript, folder: URL(filePath: "/tmp/agent"))
+        #expect(plan.contains("1. [0:04] Clic sur « Passer commande » dans Safari — Panier."))
+        #expect(plan.contains("Adresse : https://app.exemple.fr/panier"))
+        #expect(plan.contains("Dit : « Je valide le panier. »"))
+        #expect(plan.contains("2. [0:09] Clic droit en (100, 200) dans Finder."))
+        #expect(plan.contains("`step-2.png`"))
+    }
+}

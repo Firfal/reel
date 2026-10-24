@@ -74,6 +74,7 @@ struct MenuPanel: View {
                 ToggleRow(title: "Masquer les notifications", isOn: $model.doNotDisturb)
                 ToggleRow(title: "Masquer les icônes du bureau", isOn: $model.hidesDesktop)
                 ToggleRow(title: "Montrer les clics", isOn: $model.highlightsClicks)
+                ToggleRow(title: "Pour un agent : capter clics et adresses", isOn: $model.agentMode)
             }
             .frame(maxWidth: .infinity)
             .background(Theme.inset.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.control))

@@ -82,6 +82,28 @@ enum SelfTest {
         finish(report, at: reportPath)
     }
 
+    /// `--import-claude <file> <report.json>`: saves a Claude API key from a private file into the Keychain, then deletes the file.
+    static var importClaudeArguments: (file: String, report: String)? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--import-claude"), arguments.indices.contains(index + 2) else { return nil }
+        return (arguments[index + 1], arguments[index + 2])
+    }
+
+    static func importClaude(file: String, reportPath: String) async {
+        var report: [String: Any] = [:]
+        do {
+            let key = try String(contentsOfFile: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            try? FileManager.default.removeItem(atPath: file)
+            try ClaudeKey.save(key)
+            report["saved"] = ClaudeKey.load() == key
+            report["ok"] = true
+        } catch {
+            report["error"] = String(describing: error)
+            report["ok"] = false
+        }
+        finish(report, at: reportPath)
+    }
+
     /// `--share <video> <report.json>`: uploads a file to the sharing server, checks the link, then deletes it.
     static var shareArguments: (video: String, report: String)? {
         let arguments = CommandLine.arguments

@@ -20,9 +20,12 @@ struct EditorView: View {
     @State private var timeObserver: Any?
     @State private var levels: AudioLevels?
     @State private var details = SharedDetails()
-    @State private var tab = CommandLine.arguments.contains("--tab-ai") ? InspectorTab.ai : .transcript
+    @State private var tab = CommandLine.arguments.contains("--tab-ai") ? InspectorTab.ai : CommandLine.arguments.contains("--tab-agent") ? .agent : .transcript
 
-    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA" }
+    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA", agent = "Agent" }
+
+    private var agentFolder: URL { folder.appendingPathComponent("agent") }
+    private var hasAgentPlan: Bool { FileManager.default.fileExists(atPath: agentFolder.appendingPathComponent("plan.md").path) }
 
     private var folder: URL { library.folder(for: item.id) }
     private var editURL: URL { folder.appendingPathComponent("edit.json") }
@@ -95,11 +98,13 @@ struct EditorView: View {
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 14) {
             Picker("Panneau", selection: $tab) {
-                ForEach(InspectorTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(InspectorTab.allCases.filter { $0 != .agent || hasAgentPlan }, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            if tab == .ai {
+            if tab == .agent {
+                AgentPanel(folder: agentFolder)
+            } else if tab == .ai {
                 AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek)
             } else if let transcript {
                 let hesitations = levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript)

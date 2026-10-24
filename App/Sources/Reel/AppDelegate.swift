@@ -26,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await SelfTest.importCloud(file: arguments.file, reportPath: arguments.report) }
             return
         }
+        if let arguments = SelfTest.importClaudeArguments {
+            Task { await SelfTest.importClaude(file: arguments.file, reportPath: arguments.report) }
+            return
+        }
         if let arguments = SelfTest.shareArguments {
             Task { await SelfTest.share(video: arguments.video, reportPath: arguments.report) }
             return

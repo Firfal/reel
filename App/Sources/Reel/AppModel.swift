@@ -51,6 +51,8 @@ final class AppModel {
     var hidesDesktop = true
     var quality: CaptureQuality = .p1080
     var highlightsClicks = true
+    /// Agent mode: clicks, addresses and clicked text are captured for an AI agent.
+    var agentMode = CommandLine.arguments.contains("--agent-mode")
     var region: CGRect?
     var windowID: CGWindowID?
 
@@ -64,6 +66,7 @@ final class AppModel {
     let library = Library()
     private var recorder: Recorder?
     private var currentItem: VideoItem?
+    private var agentCapture: AgentCapture?
 
     var isBusy: Bool { recorderState != .idle || countdown != nil }
 
@@ -97,6 +100,13 @@ final class AppModel {
             self.recorder = recorder
             currentItem = item
             recorderState = .recording
+            if agentMode {
+                let capture = AgentCapture(folder: library.folder(for: item.id).appendingPathComponent("agent")) { [weak recorder] in
+                    recorder?.recordedDuration ?? 0
+                }
+                capture.start()
+                agentCapture = capture
+            }
         } catch {
             lastError = error.localizedDescription
             log.error("Start failed: \(error.localizedDescription, privacy: .public)")
@@ -118,6 +128,8 @@ final class AppModel {
 
     func cancelRecording() async {
         guard let recorder, let item = currentItem else { return }
+        _ = await agentCapture?.stop()
+        agentCapture = nil
         _ = try? await recorder.stop()
         try? FileManager.default.removeItem(at: library.folder(for: item.id))
         self.recorder = nil
@@ -130,6 +142,8 @@ final class AppModel {
         self.recorder = nil
         currentItem = nil
         recorderState = .idle
+        let agentEvents = await agentCapture?.stop()
+        agentCapture = nil
         do {
             after = .assembling
             let segments = try await recorder.stop()
@@ -144,6 +158,14 @@ final class AppModel {
             let transcript = try? await Transcriber.transcribe(videoURL)
             if let transcript {
                 try? JSONEncoder().encode(transcript).write(to: library.folder(for: item.id).appendingPathComponent("transcript.json"))
+            }
+            if let agentEvents {
+                let folder = library.folder(for: item.id).appendingPathComponent("agent")
+                try? JSONEncoder().encode(agentEvents).write(to: folder.appendingPathComponent("events.json"))
+                let plan = AgentPlan.markdown(title: item.title, events: agentEvents, transcript: transcript, folder: folder)
+                try? plan.write(to: folder.appendingPathComponent("plan.md"), atomically: true, encoding: .utf8)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(plan, forType: .string)
             }
 
             guard let account = CloudAccount.load() else {
