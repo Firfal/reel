@@ -94,6 +94,14 @@ export async function handleOwner(request: Request, env: Env, path: string[]): P
     if (method === "PUT") return Response.json(await putSettings(env, await readJSON(request)));
   }
 
+  // PUT /api/fonts/InstrumentSans.ttf — used once by the Mac app's setup
+  if (path[0] === "fonts" && path[1] === "InstrumentSans.ttf" && method === "PUT") {
+    contentLength(request, MAX_IMAGE_BYTES);
+    await spendOps(env, "write");
+    await env.VIDEOS.put("public/fonts/InstrumentSans.ttf", request.body, { httpMetadata: { contentType: "font/ttf" } });
+    return Response.json({ ok: true });
+  }
+
   // PUT /api/brand/logo (image body)
   if (path[0] === "brand" && path[1] === "logo" && method === "PUT") {
     const length = contentLength(request, MAX_IMAGE_BYTES);

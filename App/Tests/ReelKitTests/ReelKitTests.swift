@@ -210,3 +210,24 @@ extension SampleVideoTests {
         try captionFrame.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("reel-caption-frame.jpg"))
     }
 }
+
+/// Installs a throwaway server named reel-setuptest when REEL_CF_TOKEN holds a Cloudflare token.
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["REEL_CF_TOKEN"] != nil))
+struct CloudSetupTests {
+    @Test(.timeLimit(.minutes(4))) func `setup creates a reachable server that accepts the new owner key`() async throws {
+        var setup = CloudSetup(token: ProcessInfo.processInfo.environment["REEL_CF_TOKEN"]!)
+        setup.scriptName = "reel-setuptest"
+        setup.bucketName = "reel-setuptest"
+        setup.databaseName = "reel-setuptest"
+        let root = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let script = try Data(contentsOf: root.appendingPathComponent("Resources/Worker/index.js"))
+        let schema = try String(contentsOf: root.appendingPathComponent("Resources/Worker/schema.sql"), encoding: .utf8)
+        let font = try Data(contentsOf: root.appendingPathComponent("Resources/Fonts/InstrumentSans.ttf"))
+        let account = try await setup.run(workerScript: script, schema: schema, font: font) { print("step:", $0.rawValue) }
+        print("server:", account.serverURL)
+        let usage = try await CloudClient(account: account).usage()
+        #expect(usage.storageCapBytes == 9_000_000_000)
+        let (_, fontResponse) = try await URLSession.shared.data(from: account.serverURL.appendingPathComponent("fonts/InstrumentSans.ttf"))
+        #expect((fontResponse as? HTTPURLResponse)?.statusCode == 200)
+    }
+}

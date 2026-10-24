@@ -79,8 +79,7 @@ private struct StorageSettings: View {
                 }
             } else {
                 Text("Aucun serveur de partage. Les vidéos restent sur ton Mac.")
-                Text("Pour partager par lien, déploie le serveur Reel sur ton compte Cloudflare gratuit (voir le README), puis importe sa clé.")
-                    .font(.caption).foregroundStyle(.secondary)
+                SharingStep { self.account = CloudAccount.load() }
             }
         }
         .formStyle(.grouped)

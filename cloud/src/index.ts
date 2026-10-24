@@ -22,6 +22,13 @@ export default {
       if (root === "v") return await handleViewer(request, env, path, false);
       if (root === "embed") return await handleViewer(request, env, path, true);
       if (root === "brand" && path[0] === "logo") return await brandLogo(request, env);
+      // The title font. Wrangler deployments serve it as a static asset before the Worker runs;
+      // deployments made by the Mac app store it in R2 instead.
+      if (root === "fonts" && path[0] === "InstrumentSans.ttf") {
+        const font = await env.VIDEOS.get("public/fonts/InstrumentSans.ttf");
+        if (!font) return new Response("Not found", { status: 404 });
+        return new Response(font.body, { headers: { "Content-Type": "font/ttf", "Cache-Control": "public, max-age=31536000, immutable" } });
+      }
       if (!root) return new Response("Reel", { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       throw new HttpError(404, "Not found.");
     } catch (error) {

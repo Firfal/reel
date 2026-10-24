@@ -2,6 +2,7 @@ import AVFoundation
 import AppKit
 import Carbon.HIToolbox
 import CoreGraphics
+import ReelKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let teleprompter = TeleprompterController()
     private var library: LibraryWindowController?
     private let settings = SettingsWindowController()
+    private let onboarding = OnboardingController()
     private var hotKey: EventHotKeyRef?
     private var outsideClickMonitor: Any?
 
@@ -50,7 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.action = #selector(togglePanel)
         statusItem = item
         registerHotKey()
-        if !DemoMode.isOn { requestCameraAndMicrophone() }
+        if !DemoMode.isOn {
+            if OnboardingController.isDone || CloudAccount.load() != nil { requestCameraAndMicrophone() } else { onboarding.show() }
+        }
         observeModel()
         runDemoIfAsked()
     }
@@ -65,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "panel": openPanel()
             case "library": openLibrary()
             case "settings": settings.show()
+            case "onboarding": onboarding.show()
             case "editor":
                 if let video = arguments.dropFirst(index + 2).first {
                     DemoMode.openItemID = try? await model.importVideo(from: URL(filePath: video)).id
