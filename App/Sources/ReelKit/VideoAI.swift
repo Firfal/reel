@@ -144,6 +144,17 @@ public enum VideoAI {
         return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Turns rough dictated thoughts into short talking points for the teleprompter, one per line.
+    @concurrent
+    public static func talkingPoints(from spoken: String) async throws -> String {
+        let instructions = "Turn these rough spoken notes into 3 to 7 short talking points, in the same language, one per line, each starting with « – ». Keep the speaker's ideas and order; add nothing."
+        if AIEngine.current == .claude, let key = ClaudeKey.load() {
+            return try await ClaudeClient(apiKey: key).respond(system: instructions, prompt: spoken, maxTokens: 2_000)
+        }
+        if let reason = unavailableReason { throw VideoAIError.unavailable(reason) }
+        return try await LanguageModelSession(instructions: instructions).respond(to: spoken).content
+    }
+
     /// The transcript cut into sentences (at most 30 words each), up to `maxWords` to fit the model's context.
     static func sentences(_ transcript: Transcript, maxWords: Int) -> [(start: Double, text: String)] {
         var sentences: [(start: Double, text: String)] = []

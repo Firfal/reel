@@ -48,6 +48,7 @@ final class CameraBubbleController {
     private var cameraID: String?
 
     var isVisible: Bool { panel?.isVisible ?? false }
+    var frame: NSRect? { panel?.isVisible == true ? panel?.frame : nil }
 
     func show(cameraID: String?, shape: BubbleShape, size: BubbleSize) {
         self.shape = shape

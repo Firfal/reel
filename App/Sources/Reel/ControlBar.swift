@@ -6,10 +6,10 @@ import SwiftUI
 final class ControlBarController {
     private var panel: NSPanel?
 
-    func show(model: AppModel, onStop: @escaping () -> Void, onCancel: @escaping () -> Void, onDraw: @escaping () -> Void) {
+    func show(model: AppModel, onStop: @escaping () -> Void, onCancel: @escaping () -> Void, onDraw: @escaping () -> Void, onBlur: @escaping () -> Void = {}) {
         let panel = panel ?? makePanel()
         self.panel = panel
-        panel.contentView = NSHostingView(rootView: ControlBar(model: model, onStop: onStop, onCancel: onCancel, onDraw: onDraw))
+        panel.contentView = NSHostingView(rootView: ControlBar(model: model, onStop: onStop, onCancel: onCancel, onDraw: onDraw, onBlur: onBlur))
         panel.setContentSize(panel.contentView!.fittingSize)
         if let screen = NSScreen.main?.visibleFrame {
             panel.setFrameOrigin(NSPoint(x: screen.midX - panel.frame.width / 2, y: screen.minY + 28))
@@ -39,6 +39,7 @@ struct ControlBar: View {
     let onStop: () -> Void
     let onCancel: () -> Void
     let onDraw: () -> Void
+    var onBlur: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 6) {
@@ -68,6 +69,7 @@ struct ControlBar: View {
                       help: model.recorderState == .paused ? "Reprendre" : "Pause") { Task { await model.togglePause() } }
             BarButton(symbol: "gobackward.5", help: "Revenir 5 s en arrière") { Task { await model.rewind() } }
             BarButton(symbol: "pencil.tip", help: "Dessiner à l'écran") { onDraw() }
+            BarButton(symbol: "eye.slash", help: "Flouter une zone (double-clic pour la retirer)") { onBlur() }
             BarButton(symbol: "trash", help: "Annuler l'enregistrement") { onCancel() }
             Button(action: onStop) {
                 Image(systemName: "stop.fill")

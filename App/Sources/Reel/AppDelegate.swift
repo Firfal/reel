@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let controlBar = ControlBarController()
     private let drawing = DrawingOverlay()
     private let regionSelector = RegionSelector()
+    private let blurBoxes = BlurBoxes()
+    private let notes = SpeakerNotes()
+    private let teleprompter = TeleprompterController()
     private var library: LibraryWindowController?
     private let settings = SettingsWindowController()
     private var hotKey: EventHotKeyRef?
@@ -115,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.sharingType = DemoMode.isOn ? .readOnly : .none
-        let root = MenuPanel(model: model, bubble: bubbleSettings, onRecord: { [weak self] in
+        let root = MenuPanel(model: model, bubble: bubbleSettings, notes: notes, onRecord: { [weak self] in
             Task { await self?.record() }
         }, onOpenLibrary: { [weak self] in
             self?.closePanel()
@@ -160,7 +163,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controlBar.show(model: model, onStop: { [weak self] in Task { await self?.stop() } },
                         onCancel: { [weak self] in Task { await self?.cancel() } },
-                        onDraw: { [weak self] in self?.drawing.toggle() })
+                        onDraw: { [weak self] in self?.drawing.toggle() },
+                        onBlur: { [weak self] in self?.blurBoxes.add() })
+        teleprompter.show(notes: notes, below: bubble.frame)
         statusItem?.button?.image = StatusIcon.recording
         await model.startRecording()
         if !model.isBusy { tearDownRecordingUI() }
@@ -179,6 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func tearDownRecordingUI() {
         controlBar.hide()
         drawing.close()
+        blurBoxes.removeAll()
+        teleprompter.hide()
         bubble.hide()
         statusItem?.button?.image = StatusIcon.idle
     }

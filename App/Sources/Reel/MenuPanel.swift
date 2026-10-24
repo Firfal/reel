@@ -6,6 +6,8 @@ import SwiftUI
 struct MenuPanel: View {
     @Bindable var model: AppModel
     @Bindable var bubble: BubbleSettings
+    var notes = SpeakerNotes()
+    @State private var showsNotes = false
     let onRecord: () -> Void
     let onOpenLibrary: () -> Void
     var onOpenSettings: () -> Void = {}
@@ -59,6 +61,10 @@ struct MenuPanel: View {
                         }
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
                     }
+                    Row(symbol: "wand.and.stars", title: "Effets") {
+                        Button("Flou, arrière-plan, lumière…") { AVCaptureDevice.showSystemUserInterface(.videoEffects) }
+                            .controlSize(.small)
+                    }
                 }
                 Row(symbol: "mic", title: "Micro") {
                     Picker("Micro", selection: $model.microphoneID) {
@@ -79,6 +85,11 @@ struct MenuPanel: View {
             }
             .frame(maxWidth: .infinity)
             .background(Theme.inset.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+
+            DisclosureGroup("Téléprompteur", isExpanded: $showsNotes) {
+                NotesEditor(notes: notes).padding(.top, 6)
+            }
+            .font(.callout)
 
             Button(action: onRecord) {
                 HStack {
