@@ -167,6 +167,19 @@ public struct CloudClient: Sendable {
         let _: [String: AnyCodable] = try await send("PUT", "api/brand/logo", data: png)
     }
 
+    public struct Insights: Decodable, Sendable {
+        public struct View: Decodable, Sendable, Hashable { public var viewer: String?; public var percent: Double; public var created_at: String }
+        public struct Comment: Decodable, Sendable, Hashable { public var id: Int; public var author: String; public var body: String; public var time: Double?; public var created_at: String }
+        public struct Reaction: Decodable, Sendable, Hashable { public var kind: String; public var count: Int }
+        public var views: [View]
+        public var comments: [Comment]
+        public var reactions: [Reaction]
+    }
+
+    public func insights(videoID: String) async throws -> Insights {
+        try await send("GET", "api/videos/\(videoID)/insights")
+    }
+
     public func usage() async throws -> ServerUsage {
         try await send("GET", "api/usage")
     }

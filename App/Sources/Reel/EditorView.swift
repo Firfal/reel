@@ -22,7 +22,7 @@ struct EditorView: View {
     @State private var details = SharedDetails()
     @State private var tab = CommandLine.arguments.contains("--tab-ai") ? InspectorTab.ai : CommandLine.arguments.contains("--tab-agent") ? .agent : .transcript
 
-    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA", agent = "Agent" }
+    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA", share = "Partage", agent = "Agent" }
 
     private var agentFolder: URL { folder.appendingPathComponent("agent") }
     private var hasAgentPlan: Bool { FileManager.default.fileExists(atPath: agentFolder.appendingPathComponent("plan.md").path) }
@@ -102,7 +102,9 @@ struct EditorView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            if tab == .agent {
+            if tab == .share {
+                SharePanel(item: item, currentTime: currentTime, details: $details)
+            } else if tab == .agent {
                 AgentPanel(folder: agentFolder)
             } else if tab == .ai {
                 AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek)
@@ -248,6 +250,13 @@ struct EditorView: View {
             var metadata = ShareMetadata(title: title, duration: duration)
             metadata.description = details.summary
             metadata.cta = details.callToAction
+            metadata.privacy = details.privacy
+            if details.privacy == "password", !details.password.isEmpty { metadata.password = details.password }
+            metadata.links = details.links.compactMap { link in
+                guard let start = edit.editedTime(forSourceTime: link.start, duration: item.duration) else { return nil }
+                let end = edit.editedTime(forSourceTime: link.end, duration: item.duration) ?? start + (link.end - link.start)
+                return .init(start: start, end: end, label: link.label, url: link.url)
+            }
             // Chapters move with the edit; a chapter whose start was cut begins at the next kept moment.
             metadata.chapters = details.chapters.compactMap { chapter in
                 let kept = edit.keptRanges(duration: item.duration).first { $0.upperBound > chapter.time }
