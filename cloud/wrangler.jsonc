@@ -5,6 +5,8 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-24",
   "compatibility_flags": ["nodejs_compat"],
+  // Static files (the title font) are served before the Worker runs, and do not count as requests.
+  "assets": { "directory": "./public" },
   "observability": { "enabled": true, "traces": { "enabled": true } },
   "r2_buckets": [{ "binding": "VIDEOS", "bucket_name": "reel-videos" }],
   "d1_databases": [{ "binding": "DB", "database_name": "reel", "database_id": "REPLACE_ON_SETUP", "migrations_dir": "migrations" }],

@@ -32,7 +32,7 @@ export type Settings = {
 
 const DEFAULTS: Settings = {
   companyName: "",
-  playerColor: "#24408F",
+  playerColor: "#E2703A",
   hasLogo: false,
   logoVersion: 0,
   defaultPrivacy: "unlisted",
