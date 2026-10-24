@@ -89,6 +89,17 @@ public struct AudioLevels: Sendable {
         return merged.filter { $0.upperBound - $0.lowerBound >= minimum }
     }
 
+    /// Linear gain that brings typical speech to `target` dBFS, never boosting more than `maxBoost` dB,
+    /// and never pushing the loudest moment past -1 dBFS.
+    public func normalizingGain(target: Float = -18, maxBoost: Float = 12) -> Double {
+        let threshold = speechThreshold
+        let speech = decibels.filter { $0 >= threshold }.sorted()
+        guard !speech.isEmpty, let peak = decibels.max() else { return 1 }
+        let typical = speech[speech.count / 2]
+        let change = min(target - typical, maxBoost, -1 - peak)
+        return Double(pow(10, change / 20))
+    }
+
     /// Quiet stretches of at least `minimum` seconds, keeping `padding` of air next to the speech.
     public func silences(duration: Double, minimum: Double = 0.9, padding: Double = 0.2) -> [ClosedRange<Double>] {
         let voiced = voicedRanges()

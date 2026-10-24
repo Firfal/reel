@@ -74,6 +74,13 @@ struct MenuPanel: View {
                     }
                     .labelsHidden().frame(maxWidth: 190)
                 }
+                if model.microphoneID != nil {
+                    Row(symbol: "waveform.and.mic", title: "Bruit de fond") {
+                        Button("Isolation de la voix…") { AVCaptureDevice.showSystemUserInterface(.microphoneModes) }
+                            .controlSize(.small)
+                            .help("Ouvre les modes micro de macOS : « Isolation de la voix » retire le bruit de fond.")
+                    }
+                }
             }
 
             VStack(spacing: 0) {

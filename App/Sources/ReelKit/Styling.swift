@@ -45,12 +45,23 @@ public struct Styling: Codable, Sendable, Hashable {
     public var overlays: [Overlay] = []
     public var captions: CaptionStyle = .none
     public var backdrop: Backdrop = .none
+    /// Brings speech to a steady, comfortable loudness.
+    public var enhancesAudio = false
     /// Accent for arrows, boxes and highlighted words, as 0xRRGGBB.
     public var accent: UInt32 = 0xE2703A
 
     public init() {}
 
-    public var isEmpty: Bool { overlays.isEmpty && captions == .none && backdrop == .none }
+    public var isEmpty: Bool { overlays.isEmpty && captions == .none && backdrop == .none && !enhancesAudio }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        overlays = try container.decodeIfPresent([Overlay].self, forKey: .overlays) ?? []
+        captions = try container.decodeIfPresent(CaptionStyle.self, forKey: .captions) ?? .none
+        backdrop = try container.decodeIfPresent(Backdrop.self, forKey: .backdrop) ?? .none
+        enhancesAudio = try container.decodeIfPresent(Bool.self, forKey: .enhancesAudio) ?? false
+        accent = try container.decodeIfPresent(UInt32.self, forKey: .accent) ?? 0xE2703A
+    }
 }
 
 extension Composer {
@@ -118,6 +129,14 @@ extension Composer {
         try? FileManager.default.removeItem(at: destination)
         guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else { throw ComposerError.exportUnavailable }
         export.videoComposition = composition
+        if styling.enhancesAudio, let audio = try await asset.loadTracks(withMediaType: .audio).first {
+            let levels = try await AudioLevels.measure(cut)
+            let parameters = AVMutableAudioMixInputParameters(track: audio)
+            parameters.setVolume(Float(levels.normalizingGain()), at: .zero)
+            let mix = AVMutableAudioMix()
+            mix.inputParameters = [parameters]
+            export.audioMix = mix
+        }
         try await export.export(to: destination, as: .mp4)
         return duration
     }

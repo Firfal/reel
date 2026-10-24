@@ -121,6 +121,13 @@ import Testing
         #expect(abs(silences[0].lowerBound - 1.2) < 0.03 && abs(silences[0].upperBound - 2.8) < 0.03)
     }
 
+    @Test func `quiet speech is raised toward -18 dB, within the boost limit`() {
+        let quiet = AudioLevels(step: 0.02, decibels: Array(repeating: -30, count: 50) + Array(repeating: -70, count: 50))
+        #expect(abs(20 * log10(quiet.normalizingGain()) - 12) < 0.01)
+        let loud = AudioLevels(step: 0.02, decibels: Array(repeating: -6, count: 50) + Array(repeating: -70, count: 50))
+        #expect(abs(20 * log10(loud.normalizingGain()) - -12) < 0.01)
+    }
+
     @Test func `an extra burst inside an over-long word is a hesitation`() {
         // "On" lasts 1.4 s: 0.3 s of « euh », a pause, then the word itself.
         let audio = levels([(0.3, true), (0.5, false), (0.3, true), (0.3, false), (0.5, true)])

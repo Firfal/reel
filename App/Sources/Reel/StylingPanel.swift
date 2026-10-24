@@ -19,6 +19,11 @@ struct StylingPanel: View {
                     Text("La page de partage propose aussi ses propres sous-titres, activables par le spectateur.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                section("Son") {
+                    Toggle("Amélioration auto : voix au bon niveau", isOn: $styling.enhancesAudio)
+                        .toggleStyle(.switch).controlSize(.small).tint(Theme.accent)
+                    Text("Monte une voix trop faible et calme une voix trop forte, sans saturer.").font(.caption).foregroundStyle(.secondary)
+                }
                 section("Arrière-plan") {
                     Picker("Arrière-plan", selection: $styling.backdrop) {
                         Text("Aucun").tag(Backdrop.none)
