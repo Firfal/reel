@@ -94,6 +94,18 @@ struct MenuPanel: View {
             .disabled(model.isBusy)
             .keyboardShortcut(.defaultAction)
 
+            if model.needsScreenPermission {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Reel n'a pas encore le droit d'enregistrer l'écran.").font(.callout.weight(.medium))
+                    Text("Active Reel dans Réglages Système › Confidentialité et sécurité › Enregistrement de l'écran, puis relance Reel.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Ouvrir les réglages") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                    }
+                    .controlSize(.small)
+                }
+            }
+
             AfterRecordingRow(after: model.after)
 
             if let error = model.lastError {

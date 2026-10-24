@@ -59,6 +59,7 @@ final class AppModel {
     private(set) var countdown: Int?
     private(set) var after: AfterRecording = .idle
     private(set) var lastError: String?
+    var needsScreenPermission = false
 
     let library = Library()
     private var recorder: Recorder?

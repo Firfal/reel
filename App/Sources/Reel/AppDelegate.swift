@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.action = #selector(togglePanel)
         statusItem = item
         registerHotKey()
-        requestPermissions()
+        if !DemoMode.isOn { requestCameraAndMicrophone() }
         observeModel()
         runDemoIfAsked()
     }
@@ -124,6 +124,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func record() async {
         closePanel()
+        guard CGPreflightScreenCaptureAccess() else {
+            // Asks the first time; afterwards macOS only points to System Settings, which the panel offers too.
+            CGRequestScreenCaptureAccess()
+            model.needsScreenPermission = true
+            openPanel()
+            return
+        }
+        model.needsScreenPermission = false
         switch model.source {
         case .region:
             guard let screen = NSScreen.main, let rect = await regionSelector.select(on: screen) else { return }
@@ -218,9 +226,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RegisterEventHotKey(UInt32(kVK_ANSI_R), UInt32(optionKey | shiftKey), id, GetApplicationEventTarget(), 0, &hotKey)
     }
 
-    private func requestPermissions() {
-        if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
-        AVCaptureDevice.requestAccess(for: .video) { _ in
+    /// Camera and microphone ask once; macOS remembers the answer. Screen recording is checked only when
+    /// a recording starts (see `record()`), so a launch never shows a prompt for a permission already given.
+    private func requestCameraAndMicrophone() {
+        if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
+            AVCaptureDevice.requestAccess(for: .video) { _ in
+                if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                    AVCaptureDevice.requestAccess(for: .audio) { _ in }
+                }
+            }
+        } else if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
             AVCaptureDevice.requestAccess(for: .audio) { _ in }
         }
     }
