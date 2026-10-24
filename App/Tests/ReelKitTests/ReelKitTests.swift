@@ -86,10 +86,48 @@ import Testing
         #expect(Cleanup.fillerWords(in: transcript).map(\.text) == ["euh", "Hum."])
     }
 
+    @Test func `short pauses inside a sentence are hesitations, not those after punctuation`() {
+        let words = Transcript(locale: "fr_FR", words: [
+            TranscriptWord(text: "voici", start: 0, end: 0.5),
+            TranscriptWord(text: "le", start: 1.2, end: 1.3),        // 0.7 s pause mid-sentence: hesitation
+            TranscriptWord(text: "point.", start: 1.4, end: 1.8),
+            TranscriptWord(text: "Le", start: 2.6, end: 2.7),        // 0.8 s after a full stop: kept
+        ])
+        let pauses = Cleanup.hesitationPauses(in: words)
+        #expect(pauses.count == 1)
+        #expect(abs(pauses[0].lowerBound - 0.58) < 0.001 && abs(pauses[0].upperBound - 1.12) < 0.001)
+    }
+
     @Test func `long gaps become cuts with air left around the words`() {
         let silences = Cleanup.silences(in: transcript, duration: 7)
         #expect(silences.count == 2)
         #expect(silences[0].lowerBound == 1.65 && silences[0].upperBound == 3.75)
         #expect(silences[1] == 5.15...7)
+    }
+}
+
+@Suite struct AudioAnalysisTests {
+    /// 20 ms steps: speech at -20 dB, silence at -60 dB.
+    func levels(_ pattern: [(seconds: Double, loud: Bool)]) -> AudioLevels {
+        AudioLevels(step: 0.02, decibels: pattern.flatMap { Array(repeating: $0.loud ? Float(-20) : -60, count: Int(($0.seconds / 0.02).rounded())) })
+    }
+
+    @Test func `quiet stretches become silences with air kept around speech`() {
+        let audio = levels([(1, true), (2, false), (1, true)])
+        let silences = audio.silences(duration: 4)
+        #expect(silences.count == 1)
+        #expect(abs(silences[0].lowerBound - 1.2) < 0.03 && abs(silences[0].upperBound - 2.8) < 0.03)
+    }
+
+    @Test func `an extra burst inside an over-long word is a hesitation`() {
+        // "On" lasts 1.4 s: 0.3 s of « euh », a pause, then the word itself.
+        let audio = levels([(0.3, true), (0.5, false), (0.3, true), (0.3, false), (0.5, true)])
+        let transcript = Transcript(locale: "fr_FR", words: [TranscriptWord(text: "On", start: 1.1, end: 1.9)])
+        let wide = Transcript(locale: "fr_FR", words: [TranscriptWord(text: "On", start: 0.8, end: 1.9)])
+        // Timed tightly on the word itself: one burst only, nothing to cut.
+        #expect(Cleanup.hesitations(in: transcript, levels: audio).isEmpty)
+        let cuts = Cleanup.hesitations(in: wide, levels: audio)
+        #expect(cuts.count == 1)
+        #expect(cuts[0].lowerBound <= 0.8 && cuts[0].upperBound >= 1.3 && cuts[0].upperBound < 1.4)
     }
 }

@@ -170,6 +170,29 @@ final class AppModel {
         }
     }
 
+    /// Copies an existing video into the library, then makes its thumbnail and transcript.
+    @discardableResult
+    func importVideo(from source: URL) async throws -> VideoItem {
+        let asset = AVURLAsset(url: source)
+        let duration = try await asset.load(.duration).seconds
+        var item = VideoItem(title: source.deletingPathExtension().lastPathComponent, duration: duration)
+        try FileManager.default.createDirectory(at: library.folder(for: item.id), withIntermediateDirectories: true)
+        let videoURL = library.videoURL(for: item.id)
+        if source.pathExtension.lowercased() == "mp4" {
+            try FileManager.default.copyItem(at: source, to: videoURL)
+        } else {
+            item.duration = try await Composer.stitch([Segment(url: source)], to: videoURL)
+        }
+        try library.save(item)
+        if let thumbnail = try? await Thumbnails.jpeg(from: videoURL, at: min(1, duration / 2)) {
+            try? thumbnail.write(to: library.folder(for: item.id).appendingPathComponent("thumbnail.jpg"))
+        }
+        if let transcript = try? await Transcriber.transcribe(videoURL) {
+            try? JSONEncoder().encode(transcript).write(to: library.folder(for: item.id).appendingPathComponent("transcript.json"))
+        }
+        return item
+    }
+
     private func captureSource() throws -> CaptureSource {
         let display = NSScreen.main?.displayID ?? CGMainDisplayID()
         switch source {

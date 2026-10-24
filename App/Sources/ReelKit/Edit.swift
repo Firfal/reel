@@ -79,6 +79,25 @@ public enum Cleanup {
         transcript.words.filter { fillers.contains(normalize($0.text)) }
     }
 
+    /// Hesitations Apple's transcriber leaves out of the text: short pauses in the middle of a sentence
+    /// (between two words, not after punctuation), where an « euh » or a breath usually sits.
+    public static func hesitationPauses(
+        in transcript: Transcript,
+        range: ClosedRange<Double> = 0.4...1.2,
+        padding: Double = 0.08
+    ) -> [ClosedRange<Double>] {
+        zip(transcript.words, transcript.words.dropFirst()).compactMap { previous, next in
+            let gap = next.start - previous.end
+            guard range.contains(gap), !(previous.text.last.map { ".?!,;:".contains($0) } ?? false) else { return nil }
+            return (previous.end + padding)...(next.start - padding)
+        }
+    }
+
+    /// Every hesitation: filler words that made it into the text, plus mid-sentence pauses.
+    public static func hesitations(in transcript: Transcript) -> [ClosedRange<Double>] {
+        fillerWords(in: transcript).map { $0.start...$0.end } + hesitationPauses(in: transcript)
+    }
+
     /// Gaps between words longer than `minimum` seconds, keeping `padding` of air on each side.
     public static func silences(
         in transcript: Transcript,

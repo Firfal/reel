@@ -45,7 +45,7 @@ struct MenuPanel: View {
                         Text("Aucune").tag(String?.none)
                         ForEach(cameras, id: \.uniqueID) { Text($0.localizedName).tag(String?.some($0.uniqueID)) }
                     }
-                    .labelsHidden().fixedSize()
+                    .labelsHidden().frame(maxWidth: 190)
                 }
                 if model.cameraID != nil {
                     Row(symbol: "square.on.circle", title: "Bulle") {
@@ -65,7 +65,7 @@ struct MenuPanel: View {
                         Text("Micro par défaut").tag(String?.some(MicrophoneDevice.systemDefaultID))
                         ForEach(microphones, id: \.uniqueID) { Text($0.localizedName).tag(String?.some($0.uniqueID)) }
                     }
-                    .labelsHidden().fixedSize()
+                    .labelsHidden().frame(maxWidth: 190)
                 }
             }
 
@@ -75,6 +75,7 @@ struct MenuPanel: View {
                 ToggleRow(title: "Masquer les icônes du bureau", isOn: $model.hidesDesktop)
                 ToggleRow(title: "Montrer les clics", isOn: $model.highlightsClicks)
             }
+            .frame(maxWidth: .infinity)
             .background(Theme.inset.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
 
             Button(action: onRecord) {
@@ -109,6 +110,8 @@ struct MenuPanel: View {
         }
         .padding(16)
         .frame(width: 340)
+        .tint(Theme.accentInk)
+        .focusEffectDisabled()
         .background(alignment: .top) { Theme.sidebarTint.frame(height: 140) }
     }
 }
@@ -127,8 +130,8 @@ private struct Row<Content: View>: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: symbol).frame(width: 18).foregroundStyle(.secondary)
-            Text(title)
-            Spacer()
+            Text(title).fixedSize()
+            Spacer(minLength: 8)
             content
         }
         .font(.callout)
@@ -139,12 +142,17 @@ private struct ToggleRow: View {
     let title: String
     @Binding var isOn: Bool
     var body: some View {
-        Toggle(isOn: $isOn) { Text(title).font(.callout) }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .tint(Theme.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+        HStack {
+            Text(title).font(.callout)
+            Spacer()
+            Toggle(title, isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(Theme.accent)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
     }
 }
 

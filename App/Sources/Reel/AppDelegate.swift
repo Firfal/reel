@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runDemoIfAsked()
     }
 
-    /// `--demo panel|library|editor|recording`: opens one screen as-is, for screenshots during development.
+    /// `--demo panel|library|recording`, or `--demo editor <video>` (imports the video first): opens one screen as-is, for screenshots during development.
     private func runDemoIfAsked() {
         let arguments = CommandLine.arguments
         guard let index = arguments.firstIndex(of: "--demo"), arguments.indices.contains(index + 1) else { return }
@@ -56,6 +56,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch arguments[index + 1] {
             case "panel": openPanel()
             case "library": openLibrary()
+            case "editor":
+                if let video = arguments.dropFirst(index + 2).first {
+                    DemoMode.openItemID = try? await model.importVideo(from: URL(filePath: video)).id
+                }
+                openLibrary()
             case "recording":
                 bubble.show(cameraID: model.cameraID, shape: bubbleSettings.shape, size: bubbleSettings.size)
                 controlBar.show(model: model, onStop: {}, onCancel: {}, onDraw: {})
@@ -98,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let panel = KeyPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .popUpMenu
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -251,4 +256,11 @@ enum StatusIcon {
 /// Development screenshots: in `--demo`, Reel's own panels stay visible to screen capture.
 enum DemoMode {
     static let isOn = CommandLine.arguments.contains("--demo")
+    /// The library opens straight into this video's editor.
+    static var openItemID: UUID?
+}
+
+/// A borderless panel that can take keyboard focus, so its controls draw in their active colors.
+final class KeyPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }

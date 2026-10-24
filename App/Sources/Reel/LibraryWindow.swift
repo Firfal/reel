@@ -51,6 +51,7 @@ struct LibraryView: View {
     @State private var section: LibrarySection = .all
     @State private var selection: VideoItem.ID?
     @State private var search = ""
+    @State private var importing = false
 
     private var folders: [String] { Array(Set(items.compactMap(\.folder))).sorted() }
 
@@ -93,8 +94,22 @@ struct LibraryView: View {
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Rechercher")
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    Task { await importVideos() }
+                } label: {
+                    if importing { ProgressView().controlSize(.small) } else { Label("Importer une vidéo", systemImage: "square.and.arrow.down") }
+                }
+                .help("Importer une vidéo existante")
+                .disabled(importing)
+            }
+        }
         .tint(Theme.accent)
-        .onAppear(perform: reload)
+        .onAppear {
+            reload()
+            if let id = DemoMode.openItemID { selection = id }
+        }
         .onChange(of: model.after) { reload() }
     }
 
@@ -173,6 +188,18 @@ struct LibraryView: View {
     }
 
     private func reload() { items = model.library.items() }
+
+    private func importVideos() async {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.movie]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choisis les vidéos à ajouter à ta bibliothèque."
+        guard panel.runModal() == .OK else { return }
+        importing = true
+        for url in panel.urls { _ = try? await model.importVideo(from: url) }
+        importing = false
+        reload()
+    }
 }
 
 private struct VideoCard: View {

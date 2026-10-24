@@ -18,6 +18,7 @@ struct EditorView: View {
     @State private var sharing: AfterRecording = .idle
     @State private var shareURL: URL?
     @State private var timeObserver: Any?
+    @State private var levels: AudioLevels?
 
     private var folder: URL { library.folder(for: item.id) }
     private var editURL: URL { folder.appendingPathComponent("edit.json") }
@@ -26,7 +27,7 @@ struct EditorView: View {
         HSplitView {
             VStack(spacing: 0) {
                 header
-                VideoPlayer(player: player)
+                PlayerView(player: player)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                     .padding(.horizontal, 20)
                     .frame(minHeight: 320)
@@ -48,6 +49,7 @@ struct EditorView: View {
         .onAppear(perform: load)
         .onDisappear(perform: unload)
         .onChange(of: edit) { save() }
+        .task { levels = try? await AudioLevels.measure(library.videoURL(for: item.id)) }
     }
 
     private var header: some View {
@@ -88,17 +90,17 @@ struct EditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Transcription").font(Theme.title(15))
             if let transcript {
-                let fillers = Cleanup.fillerWords(in: transcript)
-                let silences = Cleanup.silences(in: transcript, duration: item.duration)
+                let hesitations = levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript)
+                let silences = levels?.silences(duration: item.duration) ?? Cleanup.silences(in: transcript, duration: item.duration)
                 HStack {
-                    Button("Supprimer les hésitations (\(fillers.count))") { edit.cut(words: fillers) }
-                        .disabled(fillers.isEmpty)
+                    Button("Supprimer les hésitations (\(hesitations.count))") { edit.cuts += hesitations }
+                        .disabled(hesitations.isEmpty)
                     Button("Les silences (\(silences.count))") { edit.cuts += silences }
                         .disabled(silences.isEmpty)
                 }
                 .controlSize(.small)
                 ScrollView {
-                    WordFlow(spacing: 4) {
+                    WordFlow(spacing: 1) {
                         ForEach(Array(transcript.words.enumerated()), id: \.offset) { _, word in
                             WordChip(
                                 word: word,
@@ -261,8 +263,8 @@ private struct WordChip: View {
         Text(word.text)
             .strikethrough(isCut, color: Theme.accentInk)
             .foregroundStyle(isCut ? .secondary : .primary)
-            .padding(.horizontal, 3)
-            .padding(.vertical, 1)
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
             .background(isCurrent ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 4))
             .onTapGesture(perform: action)
     }
@@ -308,5 +310,22 @@ struct WordFlow: Layout {
         }
         if !current.isEmpty { rows.append((y, current.map(\.height).max() ?? 0, current)) }
         return rows
+    }
+}
+
+/// AppKit's native player. SwiftUI's VideoPlayer can't load its AVKit superclass in a SwiftPM-built app.
+struct PlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .floating
+        view.showsFullScreenToggleButton = true
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        if view.player !== player { view.player = player }
     }
 }

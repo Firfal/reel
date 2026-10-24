@@ -26,7 +26,8 @@ let package = Package(
             name: "Reel",
             dependencies: ["ReelKit"],
             path: "Sources/Reel",
-            swiftSettings: mainActorByDefault
+            swiftSettings: mainActorByDefault,
+            linkerSettings: [.linkedFramework("AVKit")]
         ),
         .testTarget(name: "ReelKitTests", dependencies: ["ReelKit"], path: "Tests/ReelKitTests"),
     ]
