@@ -10,6 +10,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await SelfTest.run(reportPath: reportPath) }
             return
         }
+        if let arguments = SelfTest.importArguments {
+            Task { await SelfTest.importCloud(file: arguments.file, reportPath: arguments.report) }
+            return
+        }
+        if let arguments = SelfTest.shareArguments {
+            Task { await SelfTest.share(video: arguments.video, reportPath: arguments.report) }
+            return
+        }
         if let arguments = SelfTest.transcribeArguments {
             Task { await SelfTest.transcribe(video: arguments.video, reportPath: arguments.report) }
             return
