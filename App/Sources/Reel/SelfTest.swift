@@ -35,6 +35,15 @@ enum SelfTest {
             report["locale"] = transcript.locale
             report["text"] = transcript.text
             report["words"] = transcript.words.prefix(8).map { "\($0.text)@\(String(format: "%.2f", $0.start))" }
+            if CommandLine.arguments.contains("--ai") {
+                let insights = try await VideoAI.insights(for: transcript, duration: transcript.words.last?.end ?? 0)
+                report["ai.title"] = insights.title
+                report["ai.summary"] = insights.summary
+                report["ai.chapters"] = insights.chapters.map { "\($0.start)s \($0.title)" }
+                report["ai.tasks"] = insights.tasks
+                report["ai.cta"] = insights.callToAction ?? ""
+                report["ai.procedure"] = try await VideoAI.document(.procedure, for: transcript, title: insights.title)
+            }
             report["ok"] = !transcript.words.isEmpty
         } catch {
             report["error"] = String(describing: error)

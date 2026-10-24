@@ -19,9 +19,14 @@ struct EditorView: View {
     @State private var shareURL: URL?
     @State private var timeObserver: Any?
     @State private var levels: AudioLevels?
+    @State private var details = SharedDetails()
+    @State private var tab = CommandLine.arguments.contains("--tab-ai") ? InspectorTab.ai : .transcript
+
+    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA" }
 
     private var folder: URL { library.folder(for: item.id) }
     private var editURL: URL { folder.appendingPathComponent("edit.json") }
+    private var detailsURL: URL { folder.appendingPathComponent("insights.json") }
 
     var body: some View {
         HSplitView {
@@ -49,6 +54,7 @@ struct EditorView: View {
         .onAppear(perform: load)
         .onDisappear(perform: unload)
         .onChange(of: edit) { save() }
+        .onChange(of: details) { try? JSONEncoder().encode(details).write(to: detailsURL) }
         .task { levels = try? await AudioLevels.measure(library.videoURL(for: item.id)) }
     }
 
@@ -88,8 +94,14 @@ struct EditorView: View {
 
     private var inspector: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Transcription").font(Theme.title(15))
-            if let transcript {
+            Picker("Panneau", selection: $tab) {
+                ForEach(InspectorTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            if tab == .ai {
+                AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek)
+            } else if let transcript {
                 let hesitations = levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript)
                 let silences = levels?.silences(duration: item.duration) ?? Cleanup.silences(in: transcript, duration: item.duration)
                 HStack {
@@ -177,6 +189,7 @@ struct EditorView: View {
         title = item.title
         player.replaceCurrentItem(with: AVPlayerItem(url: library.videoURL(for: item.id)))
         if let data = try? Data(contentsOf: editURL), let saved = try? JSONDecoder().decode(Edit.self, from: data) { edit = saved }
+        if let data = try? Data(contentsOf: detailsURL), let saved = try? JSONDecoder().decode(SharedDetails.self, from: data) { details = saved }
         if let data = try? Data(contentsOf: folder.appendingPathComponent("transcript.json")) {
             transcript = try? JSONDecoder().decode(Transcript.self, from: data)
         }
@@ -228,6 +241,14 @@ struct EditorView: View {
                 duration = try await Composer.render(source, edit: edit, to: upload)
             }
             var metadata = ShareMetadata(title: title, duration: duration)
+            metadata.description = details.summary
+            metadata.cta = details.callToAction
+            // Chapters move with the edit; a chapter whose start was cut begins at the next kept moment.
+            metadata.chapters = details.chapters.compactMap { chapter in
+                let kept = edit.keptRanges(duration: item.duration).first { $0.upperBound > chapter.time }
+                let time = kept.map { max(chapter.time, $0.lowerBound) } ?? chapter.time
+                return edit.editedTime(forSourceTime: time, duration: item.duration).map { .init(time: $0, title: chapter.title) }
+            }
             if let transcript { metadata.captions = Captions.webVTT(from: transcript, edit: edit, duration: item.duration) }
             let client = CloudClient(account: account)
             if let previous = item.shareURL?.lastPathComponent { try? await client.delete(videoID: previous) }
