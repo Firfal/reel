@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let drawing = DrawingOverlay()
     private let regionSelector = RegionSelector()
     private var library: LibraryWindowController?
+    private let settings = SettingsWindowController()
     private var hotKey: EventHotKeyRef?
     private var outsideClickMonitor: Any?
 
@@ -60,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch arguments[index + 1] {
             case "panel": openPanel()
             case "library": openLibrary()
+            case "settings": settings.show()
             case "editor":
                 if let video = arguments.dropFirst(index + 2).first {
                     DemoMode.openItemID = try? await model.importVideo(from: URL(filePath: video)).id
@@ -118,6 +120,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }, onOpenLibrary: { [weak self] in
             self?.closePanel()
             self?.openLibrary()
+        }, onOpenSettings: { [weak self] in
+            self?.closePanel()
+            self?.settings.show()
         })
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.Radius.panel))
         panel.contentView = NSHostingView(rootView: root)

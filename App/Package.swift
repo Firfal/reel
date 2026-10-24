@@ -18,6 +18,7 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .executable(name: "Reel", targets: ["Reel"]),
+        .executable(name: "reel-mcp", targets: ["reel-mcp"]),
         .library(name: "ReelKit", targets: ["ReelKit"]),
     ],
     targets: [
@@ -29,6 +30,7 @@ let package = Package(
             swiftSettings: mainActorByDefault,
             linkerSettings: [.linkedFramework("AVKit")]
         ),
+        .executableTarget(name: "reel-mcp", dependencies: ["ReelKit"], path: "Sources/reel-mcp", swiftSettings: approachable),
         .testTarget(name: "ReelKitTests", dependencies: ["ReelKit"], path: "Tests/ReelKitTests"),
     ]
 )

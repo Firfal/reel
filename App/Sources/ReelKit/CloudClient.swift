@@ -147,6 +147,26 @@ public struct CloudClient: Sendable {
         let _: [String: AnyCodable] = try await send("PUT", "api/videos/\(videoID)/thumbnail", data: jpeg)
     }
 
+    public struct Branding: Codable, Sendable, Hashable {
+        public var companyName: String
+        public var playerColor: String
+        public var hasLogo: Bool
+        public var defaultPrivacy: String
+    }
+
+    public func branding() async throws -> Branding {
+        try await send("GET", "api/settings")
+    }
+
+    public func saveBranding(_ branding: Branding) async throws -> Branding {
+        let body: [String: Any] = ["companyName": branding.companyName, "playerColor": branding.playerColor, "defaultPrivacy": branding.defaultPrivacy]
+        return try await send("PUT", "api/settings", json: body)
+    }
+
+    public func uploadLogo(_ png: Data) async throws {
+        let _: [String: AnyCodable] = try await send("PUT", "api/brand/logo", data: png)
+    }
+
     public func usage() async throws -> ServerUsage {
         try await send("GET", "api/usage")
     }

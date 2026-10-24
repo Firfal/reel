@@ -8,6 +8,7 @@ struct MenuPanel: View {
     @Bindable var bubble: BubbleSettings
     let onRecord: () -> Void
     let onOpenLibrary: () -> Void
+    var onOpenSettings: () -> Void = {}
 
     private var cameras: [AVCaptureDevice] {
         AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified).devices
@@ -117,6 +118,7 @@ struct MenuPanel: View {
             HStack {
                 Button("Ouvrir la bibliothèque", action: onOpenLibrary).buttonStyle(.link)
                 Spacer()
+                Button("Réglages", action: onOpenSettings).buttonStyle(.link).foregroundStyle(.secondary)
                 Button("Quitter") { NSApp.terminate(nil) }.buttonStyle(.link).foregroundStyle(.secondary)
             }
             .font(.callout)
