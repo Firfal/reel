@@ -11,8 +11,8 @@ Work in progress. Working name.
 ./scripts/build-app.sh   # builds and signs dist/Reel.app
 ```
 
-The signing identity defaults to a local self-signed certificate named `Reel Local Signing`
-(set `REEL_SIGN_IDENTITY` to use another one).
+The app is signed with the first valid code signing identity on the Mac, so macOS keeps its
+permissions across rebuilds (set `REEL_SIGN_IDENTITY` to choose another one).
 
 ## License
 

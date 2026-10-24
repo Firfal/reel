@@ -38,6 +38,10 @@ public struct CaptureOptions: Sendable {
     public var showsMouseClicks: Bool
     /// Windows never recorded, such as the recording control bar.
     public var excludedWindowIDs: [CGWindowID]
+    /// Keeps notification banners out of the video (they still show on screen).
+    public var hidesNotifications: Bool
+    /// Keeps desktop icons out of the video.
+    public var hidesDesktopIcons: Bool
 
     public init(
         source: CaptureSource,
@@ -48,7 +52,9 @@ public struct CaptureOptions: Sendable {
         microphoneID: String? = MicrophoneDevice.systemDefaultID,
         showsCursor: Bool = true,
         showsMouseClicks: Bool = false,
-        excludedWindowIDs: [CGWindowID] = []
+        excludedWindowIDs: [CGWindowID] = [],
+        hidesNotifications: Bool = true,
+        hidesDesktopIcons: Bool = true
     ) {
         self.source = source
         self.quality = quality
@@ -59,6 +65,8 @@ public struct CaptureOptions: Sendable {
         self.showsCursor = showsCursor
         self.showsMouseClicks = showsMouseClicks
         self.excludedWindowIDs = excludedWindowIDs
+        self.hidesNotifications = hidesNotifications
+        self.hidesDesktopIcons = hidesDesktopIcons
     }
 
     /// Output pixel size for a source of `sourceSize` points. Even numbers, as H.264 requires.

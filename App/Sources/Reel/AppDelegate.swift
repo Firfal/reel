@@ -1,9 +1,21 @@
-import AppKit
 import AVFoundation
+import AppKit
+import Carbon.HIToolbox
 import CoreGraphics
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
+    private var panel: NSPanel?
+    private let model = AppModel()
+    private let bubbleSettings = BubbleSettings()
+    private let bubble = CameraBubbleController()
+    private let controlBar = ControlBarController()
+    private let drawing = DrawingOverlay()
+    private let regionSelector = RegionSelector()
+    private var library: LibraryWindowController?
+    private var hotKey: EventHotKeyRef?
+    private var outsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let reportPath = SelfTest.reportPath {
@@ -22,22 +34,221 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await SelfTest.transcribe(video: arguments.video, reportPath: arguments.report) }
             return
         }
+
+        Theme.registerFonts()
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Reel")
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Demander les autorisations", action: #selector(requestPermissions), keyEquivalent: "")
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Quitter Reel", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.items.forEach { if $0.action == #selector(requestPermissions) { $0.target = self } }
-        item.menu = menu
+        item.button?.image = StatusIcon.idle
+        item.button?.target = self
+        item.button?.action = #selector(togglePanel)
         statusItem = item
+        registerHotKey()
         requestPermissions()
+        observeModel()
+        runDemoIfAsked()
     }
 
-    @objc private func requestPermissions() {
+    /// `--demo panel|library|editor|recording`: opens one screen as-is, for screenshots during development.
+    private func runDemoIfAsked() {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--demo"), arguments.indices.contains(index + 1) else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            switch arguments[index + 1] {
+            case "panel": openPanel()
+            case "library": openLibrary()
+            case "recording":
+                bubble.show(cameraID: model.cameraID, shape: bubbleSettings.shape, size: bubbleSettings.size)
+                controlBar.show(model: model, onStop: {}, onCancel: {}, onDraw: {})
+            default: break
+            }
+        }
+    }
+
+    // MARK: Panel
+
+    @objc private func togglePanel() {
+        if model.isBusy {
+            Task { await stop() }
+            return
+        }
+        if let panel, panel.isVisible { closePanel() } else { openPanel() }
+    }
+
+    private func openPanel() {
+        let panel = panel ?? makePanel()
+        self.panel = panel
+        guard let button = statusItem?.button, let buttonWindow = button.window else { return }
+        let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let size = panel.contentView?.fittingSize ?? NSSize(width: 340, height: 480)
+        panel.setContentSize(size)
+        panel.setFrameOrigin(NSPoint(x: anchor.midX - size.width / 2, y: anchor.minY - size.height - 6))
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        if model.cameraID != nil { bubble.show(cameraID: model.cameraID, shape: bubbleSettings.shape, size: bubbleSettings.size) }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.closePanel() }
+        }
+    }
+
+    private func closePanel() {
+        panel?.orderOut(nil)
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
+        if !model.isBusy { bubble.hide() }
+    }
+
+    private func makePanel() -> NSPanel {
+        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .popUpMenu
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.sharingType = DemoMode.isOn ? .readOnly : .none
+        let root = MenuPanel(model: model, bubble: bubbleSettings, onRecord: { [weak self] in
+            Task { await self?.record() }
+        }, onOpenLibrary: { [weak self] in
+            self?.closePanel()
+            self?.openLibrary()
+        })
+        .glassEffect(.regular, in: .rect(cornerRadius: Theme.Radius.panel))
+        panel.contentView = NSHostingView(rootView: root)
+        return panel
+    }
+
+    // MARK: Recording
+
+    private func record() async {
+        closePanel()
+        switch model.source {
+        case .region:
+            guard let screen = NSScreen.main, let rect = await regionSelector.select(on: screen) else { return }
+            model.region = rect
+        case .window:
+            guard let id = Self.frontmostWindowID() else {
+                model.source = .screen
+                return
+            }
+            model.windowID = id
+        case .camera, .screen:
+            break
+        }
+        if model.cameraID != nil {
+            let size: BubbleSize = model.source == .camera ? .large : bubbleSettings.size
+            bubble.show(cameraID: model.cameraID, shape: bubbleSettings.shape, size: size)
+        }
+        controlBar.show(model: model, onStop: { [weak self] in Task { await self?.stop() } },
+                        onCancel: { [weak self] in Task { await self?.cancel() } },
+                        onDraw: { [weak self] in self?.drawing.toggle() })
+        statusItem?.button?.image = StatusIcon.recording
+        await model.startRecording()
+        if !model.isBusy { tearDownRecordingUI() }
+    }
+
+    private func stop() async {
+        tearDownRecordingUI()
+        await model.stopRecording()
+    }
+
+    private func cancel() async {
+        tearDownRecordingUI()
+        await model.cancelRecording()
+    }
+
+    private func tearDownRecordingUI() {
+        controlBar.hide()
+        drawing.close()
+        bubble.hide()
+        statusItem?.button?.image = StatusIcon.idle
+    }
+
+    /// The front window of the app the user was in, ignoring Reel's own windows.
+    private static func frontmostWindowID() -> CGWindowID? {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let window = windows.first { info in
+            (info[kCGWindowLayer as String] as? Int) == 0 && (info[kCGWindowOwnerPID as String] as? pid_t) != ownPID
+        }
+        return window?[kCGWindowNumber as String] as? CGWindowID
+    }
+
+    private func observeModel() {
+        withObservationTracking {
+            _ = bubbleSettings.shape
+            _ = bubbleSettings.size
+            _ = model.cameraID
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.model.cameraID == nil {
+                    self.bubble.hide()
+                } else if self.panel?.isVisible == true {
+                    self.bubble.show(cameraID: self.model.cameraID, shape: self.bubbleSettings.shape, size: self.bubbleSettings.size)
+                }
+                self.observeModel()
+            }
+        }
+    }
+
+    // MARK: Library
+
+    private func openLibrary() {
+        let controller = library ?? LibraryWindowController(model: model)
+        library = controller
+        controller.show()
+    }
+
+    // MARK: Hot key ⌥⇧R
+
+    private func registerHotKey() {
+        var handler: EventHandlerRef?
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
+            let delegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
+            MainActor.assumeIsolated {
+                if delegate.model.isBusy { Task { await delegate.stop() } } else { Task { await delegate.record() } }
+            }
+            return noErr
+        }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handler)
+        let id = EventHotKeyID(signature: OSType(0x5245_454C), id: 1)  // 'REEL'
+        RegisterEventHotKey(UInt32(kVK_ANSI_R), UInt32(optionKey | shiftKey), id, GetApplicationEventTarget(), 0, &hotKey)
+    }
+
+    private func requestPermissions() {
         if !CGPreflightScreenCaptureAccess() { CGRequestScreenCaptureAccess() }
         AVCaptureDevice.requestAccess(for: .video) { _ in
             AVCaptureDevice.requestAccess(for: .audio) { _ in }
         }
     }
+}
+
+/// Menu bar icons: Halo's mark (a pill with its playhead) at rest, a filled dot while recording.
+enum StatusIcon {
+    static let idle = draw(recording: false)
+    static let recording = draw(recording: true)
+
+    private static func draw(recording: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSColor.black.setStroke()
+            if recording {
+                NSBezierPath(ovalIn: rect.insetBy(dx: 4, dy: 4)).fill()
+            } else {
+                let track = NSBezierPath(roundedRect: NSRect(x: 2, y: 7.5, width: 14, height: 3), xRadius: 1.5, yRadius: 1.5)
+                track.fill()
+                let head = NSBezierPath(ovalIn: NSRect(x: 8.5, y: 5, width: 8, height: 8))
+                head.lineWidth = 1.6
+                NSColor.white.setFill()
+                head.fill()
+                head.stroke()
+            }
+            return true
+        }
+        image.isTemplate = !recording
+        return image
+    }
+}
+
+/// Development screenshots: in `--demo`, Reel's own panels stay visible to screen capture.
+enum DemoMode {
+    static let isOn = CommandLine.arguments.contains("--demo")
 }

@@ -138,7 +138,14 @@ public final class Recorder {
     // MARK: Configuration
 
     private static func filter(for options: CaptureOptions, in content: SCShareableContent) throws -> (SCContentFilter, CGSize) {
-        let excluded = content.windows.filter { options.excludedWindowIDs.contains($0.windowID) }
+        let desktopIconLevel = Int(CGWindowLevelForKey(.desktopIconWindow))
+        let excluded = content.windows.filter { window in
+            let bundleID = window.owningApplication?.bundleIdentifier
+            if options.excludedWindowIDs.contains(window.windowID) { return true }
+            if options.hidesNotifications, bundleID == "com.apple.notificationcenterui" { return true }
+            if options.hidesDesktopIcons, bundleID == "com.apple.finder", window.windowLayer == desktopIconLevel { return true }
+            return false
+        }
         switch options.source {
         case .display(let id):
             guard let display = content.displays.first(where: { $0.displayID == id }) else { throw RecorderError.sourceNotFound }
