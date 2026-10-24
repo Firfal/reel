@@ -20,9 +20,11 @@ struct EditorView: View {
     @State private var timeObserver: Any?
     @State private var levels: AudioLevels?
     @State private var details = SharedDetails()
+    @State private var styling = Styling()
+    @State private var videoAspect: CGFloat = 16 / 9
     @State private var tab = CommandLine.arguments.contains("--tab-ai") ? InspectorTab.ai : CommandLine.arguments.contains("--tab-agent") ? .agent : .transcript
 
-    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA", share = "Partage", agent = "Agent" }
+    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA", styling = "Habillage", share = "Partage", agent = "Agent" }
 
     private var agentFolder: URL { folder.appendingPathComponent("agent") }
     private var hasAgentPlan: Bool { FileManager.default.fileExists(atPath: agentFolder.appendingPathComponent("plan.md").path) }
@@ -30,12 +32,14 @@ struct EditorView: View {
     private var folder: URL { library.folder(for: item.id) }
     private var editURL: URL { folder.appendingPathComponent("edit.json") }
     private var detailsURL: URL { folder.appendingPathComponent("insights.json") }
+    private var stylingURL: URL { folder.appendingPathComponent("styling.json") }
 
     var body: some View {
         HSplitView {
             VStack(spacing: 0) {
                 header
                 PlayerView(player: player)
+                    .overlay { OverlayCanvas(styling: $styling, currentTime: currentTime, videoAspect: videoAspect).padding(.bottom, 40) }
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                     .padding(.horizontal, 20)
                     .frame(minHeight: 320)
@@ -58,6 +62,7 @@ struct EditorView: View {
         .onDisappear(perform: unload)
         .onChange(of: edit) { save() }
         .onChange(of: details) { try? JSONEncoder().encode(details).write(to: detailsURL) }
+        .onChange(of: styling) { try? JSONEncoder().encode(styling).write(to: stylingURL) }
         .task { levels = try? await AudioLevels.measure(library.videoURL(for: item.id)) }
     }
 
@@ -71,6 +76,13 @@ struct EditorView: View {
                 .font(Theme.title(17))
                 .onSubmit(saveTitle)
             Spacer()
+            ControlGroup {
+                ForEach(Overlay.Kind.allCases, id: \.self) { kind in
+                    Button { addOverlay(kind) } label: { Image(systemName: StylingPanel.symbol(kind)) }
+                        .help(kind == .text ? "Ajouter un texte" : kind == .arrow ? "Ajouter une flèche" : "Ajouter un cadre")
+                }
+            }
+            .fixedSize()
             Button {
                 Task { await setThumbnail() }
             } label: {
@@ -108,7 +120,9 @@ struct EditorView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            if tab == .share {
+            if tab == .styling {
+                StylingPanel(styling: $styling, onSeek: seek)
+            } else if tab == .share {
                 SharePanel(item: item, currentTime: currentTime, details: $details)
             } else if tab == .agent {
                 AgentPanel(folder: agentFolder)
@@ -203,6 +217,13 @@ struct EditorView: View {
         player.replaceCurrentItem(with: AVPlayerItem(url: library.videoURL(for: item.id)))
         if let data = try? Data(contentsOf: editURL), let saved = try? JSONDecoder().decode(Edit.self, from: data) { edit = saved }
         if let data = try? Data(contentsOf: detailsURL), let saved = try? JSONDecoder().decode(SharedDetails.self, from: data) { details = saved }
+        if let data = try? Data(contentsOf: stylingURL), let saved = try? JSONDecoder().decode(Styling.self, from: data) { styling = saved }
+        Task {
+            if let track = try? await AVURLAsset(url: library.videoURL(for: item.id)).loadTracks(withMediaType: .video).first,
+               let size = try? await track.load(.naturalSize), size.height > 0 {
+                videoAspect = size.width / size.height
+            }
+        }
         if let data = try? Data(contentsOf: folder.appendingPathComponent("transcript.json")) {
             transcript = try? JSONDecoder().decode(Transcript.self, from: data)
         }
@@ -234,6 +255,16 @@ struct EditorView: View {
         onChange()
     }
 
+    private func addOverlay(_ kind: Overlay.Kind) {
+        let rect: CGRect = switch kind {
+        case .text: CGRect(x: 0.3, y: 0.75, width: 0.4, height: 0.09)
+        case .arrow: CGRect(x: 0.42, y: 0.38, width: 0.16, height: 0.16)
+        case .box: CGRect(x: 0.35, y: 0.35, width: 0.3, height: 0.25)
+        }
+        styling.overlays.append(Overlay(kind: kind, rect: rect, start: currentTime, end: min(item.duration, currentTime + 4), text: kind == .text ? "Texte" : ""))
+        tab = .styling
+    }
+
     /// The frame on screen becomes the video's thumbnail, here and on the share page at the next share.
     private func setThumbnail() async {
         guard let jpeg = try? await Thumbnails.jpeg(from: library.videoURL(for: item.id), at: currentTime) else { return }
@@ -257,11 +288,20 @@ struct EditorView: View {
             let source = library.videoURL(for: item.id)
             var upload = source
             let duration: Double
-            if edit.cuts.isEmpty {
+            if edit.cuts.isEmpty && styling.isEmpty {
                 duration = item.duration
             } else {
                 upload = FileManager.default.temporaryDirectory.appendingPathComponent("\(item.id).mp4")
-                duration = try await Composer.render(source, edit: edit, to: upload)
+                var styled = styling
+                // Overlays were placed on the source timeline; move them onto the edited one.
+                styled.overlays = styling.overlays.compactMap { overlay in
+                    guard let start = edit.editedTime(forSourceTime: overlay.start, duration: item.duration) else { return nil }
+                    var moved = overlay
+                    moved.start = start
+                    moved.end = start + (overlay.end - overlay.start)
+                    return moved
+                }
+                duration = try await Composer.render(source, edit: edit, styling: styled, transcript: transcript, to: upload)
             }
             var metadata = ShareMetadata(title: title, duration: duration)
             metadata.description = details.summary

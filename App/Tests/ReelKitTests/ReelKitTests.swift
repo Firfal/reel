@@ -180,3 +180,26 @@ struct SampleVideoTests {
         #expect(!levels.voicedRanges().isEmpty)
     }
 }
+
+extension SampleVideoTests {
+    @Test func `styled export burns in overlays, captions and a backdrop`() async throws {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        defer { try? FileManager.default.removeItem(at: output) }
+        var styling = Styling()
+        styling.backdrop = .gradient
+        styling.captions = .classic
+        styling.overlays = [
+            Overlay(kind: .box, rect: CGRect(x: 0.1, y: 0.1, width: 0.3, height: 0.2), start: 0, end: 4),
+            Overlay(kind: .arrow, rect: CGRect(x: 0.5, y: 0.4, width: 0.2, height: 0.2), start: 1, end: 5),
+            Overlay(kind: .text, rect: CGRect(x: 0.3, y: 0.7, width: 0.4, height: 0.1), start: 2, end: 6, text: "Record du trimestre"),
+        ]
+        let transcript = Transcript(locale: "fr_FR", words: [TranscriptWord(text: "Bonjour", start: 0.2, end: 0.6), TranscriptWord(text: "Camille.", start: 0.6, end: 1.2)])
+        let duration = try await Composer.render(video, edit: Edit(cuts: [10...12]), styling: styling, transcript: transcript, to: output)
+        let exported = try await AVURLAsset(url: output).load(.duration).seconds
+        #expect(abs(exported - duration) < 0.3)
+        let frame = try await Thumbnails.jpeg(from: output, at: 3)
+        try frame.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("reel-styled-frame.jpg"))
+        let captionFrame = try await Thumbnails.jpeg(from: output, at: 0.8)
+        try captionFrame.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("reel-caption-frame.jpg"))
+    }
+}
