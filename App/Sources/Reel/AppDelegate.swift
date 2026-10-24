@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await SelfTest.run(reportPath: reportPath) }
             return
         }
+        if let arguments = SelfTest.transcribeArguments {
+            Task { await SelfTest.transcribe(video: arguments.video, reportPath: arguments.report) }
+            return
+        }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Reel")
         let menu = NSMenu()

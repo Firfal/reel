@@ -13,6 +13,32 @@ enum SelfTest {
         return arguments[index + 1]
     }
 
+    /// `--transcribe <video> <report.json>`: transcribes a file on-device and writes the words.
+    static var transcribeArguments: (video: String, report: String)? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--transcribe"), arguments.indices.contains(index + 2) else { return nil }
+        return (arguments[index + 1], arguments[index + 2])
+    }
+
+    static func transcribe(video: String, reportPath: String) async {
+        var report: [String: Any] = [:]
+        let started = Date()
+        do {
+            let transcript = try await Transcriber.transcribe(URL(filePath: video), locale: Locale(identifier: "fr_FR"))
+            report["locale"] = transcript.locale
+            report["text"] = transcript.text
+            report["words"] = transcript.words.prefix(8).map { "\($0.text)@\(String(format: "%.2f", $0.start))" }
+            report["ok"] = !transcript.words.isEmpty
+        } catch {
+            report["error"] = String(describing: error)
+            report["ok"] = false
+        }
+        report["seconds"] = Date().timeIntervalSince(started)
+        let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        FileManager.default.createFile(atPath: reportPath, contents: data)
+        NSApplication.shared.terminate(nil)
+    }
+
     static func run(reportPath: String) async {
         var report: [String: Any] = [
             "screenPermission": CGPreflightScreenCaptureAccess(),
