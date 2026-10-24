@@ -125,7 +125,7 @@ struct LibraryView: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 18)], spacing: 22) {
                     ForEach(visible) { item in
-                        VideoCard(item: item, thumbnail: model.library.folder(for: item.id).appendingPathComponent("thumbnail.jpg"))
+                        VideoCard(item: item, folder: model.library.folder(for: item.id))
                             .onTapGesture(count: 2) { selection = item.id }
                             .contextMenu { contextMenu(for: item) }
                     }
@@ -204,16 +204,25 @@ struct LibraryView: View {
 
 private struct VideoCard: View {
     let item: VideoItem
-    let thumbnail: URL
+    let folder: URL
     @State private var hovering = false
+
+    private var thumbnail: URL { folder.appendingPathComponent("thumbnail.jpg") }
+    private var preview: URL { folder.appendingPathComponent("preview.gif") }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .bottomTrailing) {
-                AsyncImage(url: thumbnail) { image in
-                    image.resizable().aspectRatio(16 / 10, contentMode: .fill)
-                } placeholder: {
-                    Theme.inset
+                Group {
+                    if hovering, FileManager.default.fileExists(atPath: preview.path) {
+                        AnimatedImage(url: preview)
+                    } else {
+                        AsyncImage(url: thumbnail) { image in
+                            image.resizable().aspectRatio(16 / 10, contentMode: .fill)
+                        } placeholder: {
+                            Theme.inset
+                        }
+                    }
                 }
                 .aspectRatio(16 / 10, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
@@ -242,4 +251,21 @@ private struct VideoCard: View {
         .onHover { hovering = $0 }
         .animation(Theme.Motion.standard, value: hovering)
     }
+}
+
+/// Plays an animated GIF; SwiftUI's Image shows only its first frame.
+private struct AnimatedImage: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> NSImageView {
+        let view = NSImageView()
+        view.animates = true
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.image = NSImage(contentsOf: url)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return view
+    }
+
+    func updateNSView(_ view: NSImageView, context: Context) {}
 }

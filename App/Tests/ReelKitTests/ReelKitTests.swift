@@ -1,4 +1,6 @@
+import AVFoundation
 import CoreGraphics
+import ImageIO
 import Foundation
 import Testing
 @testable import ReelKit
@@ -151,5 +153,30 @@ import Testing
         #expect(plan.contains("Dit : « Je valide le panier. »"))
         #expect(plan.contains("2. [0:09] Clic droit en (100, 200) dans Finder."))
         #expect(plan.contains("`step-2.png`"))
+    }
+}
+
+/// Runs on a real video when REEL_SAMPLE_VIDEO points to one (any MP4 with sound).
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["REEL_SAMPLE_VIDEO"] != nil))
+struct SampleVideoTests {
+    let video = URL(filePath: ProcessInfo.processInfo.environment["REEL_SAMPLE_VIDEO"] ?? "/dev/null")
+
+    @Test func `a GIF preview loops 24 frames`() async throws {
+        let gif = try await Thumbnails.gif(from: video)
+        let source = try #require(CGImageSourceCreateWithData(gif as CFData, nil))
+        #expect(CGImageSourceGetCount(source) == 24)
+    }
+
+    @Test func `rendering an edit shortens the video by the cut`() async throws {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        defer { try? FileManager.default.removeItem(at: output) }
+        let duration = try await Composer.render(video, edit: Edit(cuts: [2...5]), to: output)
+        let source = try await AVURLAsset(url: video).load(.duration).seconds
+        #expect(abs(duration - (source - 3)) < 0.2)
+    }
+
+    @Test func `audio levels find speech and quiet`() async throws {
+        let levels = try await AudioLevels.measure(video)
+        #expect(!levels.voicedRanges().isEmpty)
     }
 }

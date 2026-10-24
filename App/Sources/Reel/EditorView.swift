@@ -71,6 +71,12 @@ struct EditorView: View {
                 .font(Theme.title(17))
                 .onSubmit(saveTitle)
             Spacer()
+            Button {
+                Task { await setThumbnail() }
+            } label: {
+                Label("Miniature", systemImage: "photo")
+            }
+            .help("Utiliser l'image affichée comme miniature")
             Text("\(ControlBar.format(edit.editedDuration(duration: item.duration))) après montage")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -228,6 +234,16 @@ struct EditorView: View {
         onChange()
     }
 
+    /// The frame on screen becomes the video's thumbnail, here and on the share page at the next share.
+    private func setThumbnail() async {
+        guard let jpeg = try? await Thumbnails.jpeg(from: library.videoURL(for: item.id), at: currentTime) else { return }
+        try? jpeg.write(to: folder.appendingPathComponent("thumbnail.jpg"))
+        if let preview = try? await Thumbnails.gif(from: library.videoURL(for: item.id), start: currentTime) {
+            try? preview.write(to: folder.appendingPathComponent("preview.gif"))
+        }
+        onChange()
+    }
+
     // MARK: Sharing
 
     private func share() async {
@@ -272,6 +288,9 @@ struct EditorView: View {
             }
             if let thumbnail = try? Data(contentsOf: folder.appendingPathComponent("thumbnail.jpg")) {
                 try? await client.uploadThumbnail(thumbnail, videoID: uploaded.id)
+            }
+            if let preview = try? Data(contentsOf: folder.appendingPathComponent("preview.gif")) {
+                try? await client.uploadPreview(preview, videoID: uploaded.id)
             }
             if upload != source { try? FileManager.default.removeItem(at: upload) }
             var copy = item

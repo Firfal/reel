@@ -153,6 +153,8 @@ final class AppModel {
             try library.save(item)
             let thumbnail = try? await Thumbnails.jpeg(from: videoURL, at: min(1, item.duration / 2))
             if let thumbnail { try? thumbnail.write(to: library.folder(for: item.id).appendingPathComponent("thumbnail.jpg")) }
+            let preview = try? await Thumbnails.gif(from: videoURL)
+            if let preview { try? preview.write(to: library.folder(for: item.id).appendingPathComponent("preview.gif")) }
 
             after = .transcribing
             let transcript = try? await Transcriber.transcribe(videoURL)
@@ -181,6 +183,7 @@ final class AppModel {
                 Task { @MainActor [weak self] in self?.after = .uploading(value) }
             }
             if let thumbnail { try? await client.uploadThumbnail(thumbnail, videoID: uploaded.id) }
+            if let preview { try? await client.uploadPreview(preview, videoID: uploaded.id) }
             item.shareURL = uploaded.url
             try library.save(item)
             NSPasteboard.general.clearContents()

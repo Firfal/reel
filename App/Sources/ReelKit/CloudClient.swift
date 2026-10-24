@@ -180,6 +180,10 @@ public struct CloudClient: Sendable {
         try await send("GET", "api/videos/\(videoID)/insights")
     }
 
+    public func uploadPreview(_ gif: Data, videoID: String) async throws {
+        let _: [String: AnyCodable] = try await send("PUT", "api/videos/\(videoID)/preview", data: gif)
+    }
+
     public func usage() async throws -> ServerUsage {
         try await send("GET", "api/usage")
     }
