@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>app.reel.mac</string>
+  <key>CFBundleName</key><string>Reel</string>
+  <key>CFBundleDisplayName</key><string>Reel</string>
+  <key>CFBundleExecutable</key><string>Reel</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>26.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSCameraUsageDescription</key><string>Reel affiche ta caméra dans une bulle pendant l'enregistrement.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Reel enregistre ta voix avec la vidéo.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Reel transcrit tes vidéos sur ton Mac pour les sous-titres et le montage.</string>
+</dict>
+</plist>
