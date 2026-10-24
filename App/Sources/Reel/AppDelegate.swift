@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let reportPath = SelfTest.reportPath {
+            Task { await SelfTest.run(reportPath: reportPath) }
+            return
+        }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Reel")
         let menu = NSMenu()
