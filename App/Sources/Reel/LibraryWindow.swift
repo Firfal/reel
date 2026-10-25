@@ -52,6 +52,7 @@ struct LibraryView: View {
     @State private var selection: VideoItem.ID?
     @State private var search = ""
     @State private var importing = false
+    @State private var importFailures: [String] = []
 
     private var folders: [String] { Array(Set(items.compactMap(\.folder))).sorted() }
 
@@ -124,7 +125,7 @@ struct LibraryView: View {
                             .contextMenu { contextMenu(for: item) }
                         }
                     }
-                    .padding(24)
+                    .padding(Theme.Spacing.page)
                 }
             }
         }
@@ -132,6 +133,11 @@ struct LibraryView: View {
         .background(Theme.canvas)
         .navigationTitle(title)
         .searchable(text: $search, placement: .toolbar, prompt: "Rechercher")
+        .alert("Import impossible", isPresented: Binding(get: { !importFailures.isEmpty }, set: { if !$0 { importFailures = [] } })) {
+            Button("OK") {}
+        } message: {
+            Text("Ces fichiers n'ont pas pu être lus comme des vidéos : \(importFailures.joined(separator: ", ")).")
+        }
         .toolbar {
             ToolbarItem {
                 Button {
@@ -214,8 +220,12 @@ struct LibraryView: View {
         panel.message = "Choisis les vidéos à ajouter à ta bibliothèque."
         guard panel.runModal() == .OK else { return }
         importing = true
-        for url in panel.urls { _ = try? await model.importVideo(from: url) }
+        var failures: [String] = []
+        for url in panel.urls {
+            do { _ = try await model.importVideo(from: url) } catch { failures.append(url.lastPathComponent) }
+        }
         importing = false
+        importFailures = failures
         reload()
     }
 }

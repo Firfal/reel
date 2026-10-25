@@ -8,9 +8,10 @@ final class RegionSelector {
     private var continuation: CheckedContinuation<CGRect?, Never>?
 
     func select(on screen: NSScreen) async -> CGRect? {
-        await withCheckedContinuation { continuation in
+        guard continuation == nil else { return nil }
+        return await withCheckedContinuation { continuation in
             self.continuation = continuation
-            let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            let window = KeyWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
             window.level = .screenSaver
             window.isOpaque = false
             window.backgroundColor = .clear

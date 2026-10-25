@@ -23,6 +23,7 @@ struct EditorView: View {
     @State private var styling = Styling()
     @State private var videoAspect: CGFloat = 16 / 9
     @State private var tab = InspectorTab.demo ?? .transcript
+    @State private var aiWorking = false
 
     enum InspectorTab: String, CaseIterable {
         case transcript = "Transcription", ai = "IA", styling = "Habillage", share = "Partage", agent = "Agent"
@@ -60,7 +61,7 @@ struct EditorView: View {
         VStack(spacing: 0) {
             header
             PlayerView(player: player)
-                .overlay { OverlayCanvas(styling: $styling, currentTime: currentTime, videoAspect: videoAspect).padding(.bottom, 40) }
+                .overlay { OverlayCanvas(styling: $styling, currentTime: currentTime, videoAspect: videoAspect) }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                 .frame(minHeight: 240)
                 .padding(.horizontal, Self.gutter)
@@ -73,7 +74,7 @@ struct EditorView: View {
             )
             .frame(height: 92)
             .padding(.horizontal, Self.gutter)
-            .padding(.vertical, 18)
+            .padding(.vertical, Theme.Spacing.section)
         }
         .frame(minWidth: 480)
         .background(Theme.canvas)
@@ -87,14 +88,17 @@ struct EditorView: View {
         // macOS focuses the first text field of a new window; the title stays quiet until clicked.
         .task { titleFocused = false }
         .onDisappear(perform: unload)
-        .onChange(of: edit) { save() }
+        .onChange(of: edit) {
+            save()
+            isSettled = true
+        }
         .onChange(of: details) { try? JSONEncoder().encode(details).write(to: detailsURL) }
         .onChange(of: styling) { try? JSONEncoder().encode(styling).write(to: stylingURL) }
         .task { levels = try? await AudioLevels.measure(library.videoURL(for: item.id)) }
     }
 
     /// Player, timeline and title share one edge.
-    private static let gutter: CGFloat = 20
+    private static let gutter = Theme.Spacing.gutter
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
@@ -118,9 +122,9 @@ struct EditorView: View {
         }
         ToolbarItem {
             Button { Task { await share() } } label: {
-                Label(item.shareURL == nil ? "Partager" : "Mettre à jour le lien", systemImage: "square.and.arrow.up")
+                Label(shareURL == nil ? "Partager" : "Mettre à jour le lien", systemImage: "square.and.arrow.up")
             }
-            .help(item.shareURL == nil ? "Envoyer la vidéo et copier son lien" : "Renvoyer la vidéo montée, au même endroit")
+            .help(shareURL == nil ? "Envoyer la vidéo et copier son lien" : "Renvoyer la vidéo montée : un nouveau lien remplace l'ancien")
             .disabled(isSharing)
         }
         ToolbarItem {
@@ -148,15 +152,15 @@ struct EditorView: View {
                 .onSubmit(saveTitle)
                 .onChange(of: titleFocused) { if !titleFocused { saveTitle() } }
             Spacer(minLength: 12)
-            if sharing == .idle {
+            if sharing == .idle || isSettled {
                 lengthSummary
             } else {
                 shareStatus
             }
         }
         .padding(.horizontal, Self.gutter)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
+        .padding(.top, Theme.Spacing.section)
+        .padding(.bottom, Theme.Spacing.row)
     }
 
     @ViewBuilder private var lengthSummary: some View {
@@ -177,6 +181,9 @@ struct EditorView: View {
         .fixedSize()
     }
 
+    /// A finished share stays in the header only until the next edit.
+    @State private var isSettled = false
+
     private var isSharing: Bool {
         switch sharing {
         case .assembling, .uploading: true
@@ -190,24 +197,24 @@ struct EditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("Panneau", selection: $tab) {
                 ForEach(InspectorTab.allCases.filter { $0 != .agent || hasAgentPlan }, id: \.self) { tab in
-                    Image(systemName: tab.symbol).accessibilityLabel(tab.rawValue).tag(tab)
+                    Image(systemName: tab.symbol).accessibilityLabel(tab.rawValue).help(tab.rawValue).tag(tab)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.horizontal, Theme.Spacing.section)
+            .padding(.top, Theme.Spacing.row)
             Text(tab.rawValue)
                 .font(Theme.title(15))
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.horizontal, Theme.Spacing.section)
+                .padding(.top, Theme.Spacing.section)
+                .padding(.bottom, Theme.Spacing.row)
             Group {
                 switch tab {
-                case .styling: StylingPanel(styling: $styling, onSeek: seek)
+                case .styling: StylingPanel(styling: $styling, duration: item.duration, onSeek: seek)
                 case .share: SharePanel(item: item, currentTime: currentTime, details: $details)
                 case .agent: AgentPanel(folder: agentFolder)
-                case .ai: AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek)
+                case .ai: AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek, working: $aiWorking)
                 case .transcript: transcriptPanel
                 }
             }
@@ -220,8 +227,8 @@ struct EditorView: View {
         if let transcript {
             let hesitations = levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript)
             let silences = levels?.silences(duration: item.duration) ?? Cleanup.silences(in: transcript, duration: item.duration)
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.row) {
+                HStack(spacing: Theme.Spacing.small) {
                     Button("Hésitations (\(hesitations.count))") { edit.cuts += hesitations }
                         .disabled(hesitations.isEmpty)
                         .help("Couper les « euh » et les reprises")
@@ -231,7 +238,7 @@ struct EditorView: View {
                 }
                 .controlSize(.small)
                 ScrollView {
-                    WordFlow(spacing: 1) {
+                    WordFlow(spacing: 2) {
                         ForEach(Array(transcript.words.enumerated()), id: \.offset) { _, word in
                             WordChip(
                                 word: word,
@@ -245,8 +252,8 @@ struct EditorView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 14)
+            .padding(.horizontal, Theme.Spacing.section)
+            .padding(.bottom, Theme.Spacing.section)
         } else {
             ContentUnavailableView("Pas de transcription", systemImage: "text.bubble",
                                    description: Text("La vidéo n'a pas de voix, ou la langue n'est pas prise en charge."))
@@ -299,6 +306,7 @@ struct EditorView: View {
 
     private func load() {
         title = item.title
+        shareURL = item.shareURL
         player.replaceCurrentItem(with: AVPlayerItem(url: library.videoURL(for: item.id)))
         if let data = try? Data(contentsOf: editURL), let saved = try? JSONDecoder().decode(Edit.self, from: data) { edit = saved }
         if let data = try? Data(contentsOf: detailsURL), let saved = try? JSONDecoder().decode(SharedDetails.self, from: data) { details = saved }
@@ -325,6 +333,7 @@ struct EditorView: View {
     }
 
     private func unload() {
+        saveTitle()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         player.pause()
     }
@@ -367,7 +376,13 @@ struct EditorView: View {
             sharing = .failed("Aucun serveur de partage configuré. Ouvre Réglages › Stockage.")
             return
         }
+        guard details.privacy != "password" || !details.password.isEmpty else {
+            sharing = .failed("Choisis le mot de passe des spectateurs.")
+            tab = .share
+            return
+        }
         saveTitle()
+        isSettled = false
         sharing = .assembling
         do {
             let source = library.videoURL(for: item.id)
@@ -406,7 +421,6 @@ struct EditorView: View {
             }
             if let transcript { metadata.captions = Captions.webVTT(from: transcript, edit: edit, duration: item.duration) }
             let client = CloudClient(account: account)
-            if let previous = item.shareURL?.lastPathComponent { try? await client.delete(videoID: previous) }
             sharing = .uploading(0)
             let uploaded = try await client.upload(upload, metadata: metadata) { value in
                 Task { @MainActor in sharing = .uploading(value) }
@@ -418,9 +432,12 @@ struct EditorView: View {
                 try? await client.uploadPreview(preview, videoID: uploaded.id)
             }
             if upload != source { try? FileManager.default.removeItem(at: upload) }
+            // Only once the new video is online: if the upload fails, the old link still works.
+            if let previous = shareURL?.lastPathComponent, previous != uploaded.id { try? await client.delete(videoID: previous) }
             var copy = item
             copy.title = title
             copy.shareURL = uploaded.url
+            shareURL = uploaded.url
             try library.save(copy)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(uploaded.url.absoluteString, forType: .string)
@@ -442,10 +459,14 @@ private struct WordChip: View {
         Text(word.text)
             .strikethrough(isCut, color: Theme.accentInk)
             .foregroundStyle(isCut ? .secondary : .primary)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 1)
             .padding(.vertical, 2)
-            .background(isCurrent ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 4))
+            .background(isCurrent ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: Theme.Radius.small))
+            .contentShape(Rectangle())
             .onTapGesture(perform: action)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(isCut ? "Remettre ce mot" : "Couper ce mot")
+            .accessibilityAction(named: isCut ? "Remettre" : "Couper", action)
     }
 }
 

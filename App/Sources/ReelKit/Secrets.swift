@@ -14,8 +14,9 @@ enum Secrets {
         let name = "\(service)/\(account)"
         if let value = store.withLock({ $0.values[name] }) { return value }
         guard !store.withLock({ $0.migrated.contains(name) }) else { return nil }
-        // One last Keychain read for values saved by earlier builds.
-        let legacy = Keychain.read(service: service, account: account)
+        // One last Keychain read for values saved by earlier builds, without a password prompt:
+        // a value macOS won't hand over silently is left behind, and the user enters it again.
+        let legacy = Keychain.readSilently(service: service, account: account).0
         store.withLock { file in
             file.migrated.insert(name)
             if let legacy { file.values[name] = legacy }
@@ -89,6 +90,21 @@ enum Keychain {
         var result: AnyObject?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// Fails instead of asking for the login password when the item's access list doesn't include this build.
+    static func readSilently(service: String, account: String) -> (String?, OSStatus) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return (nil, status) }
+        return (String(data: data, encoding: .utf8), status)
     }
 
     static func write(_ value: String, service: String, account: String) throws {

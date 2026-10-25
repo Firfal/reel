@@ -40,79 +40,94 @@ struct AIPanel: View {
     @Binding var title: String
     @Binding var details: SharedDetails
     let onSeek: (Double) -> Void
+    /// Owned by the editor, so a generation keeps running, and shows, across tab switches.
+    @Binding var working: Bool
 
-    @State private var working = false
     @State private var error: String?
+    @State private var confirmsRegenerate = false
     @State private var document: (kind: DocumentKind, text: String)?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("Proposé sur ton Mac").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(details.chapters.isEmpty && details.summary.isEmpty ? "Générer" : "Régénérer") { Task { await generate() } }
-                        .controlSize(.small)
-                        .disabled(working || transcript == nil)
+        InspectorPage {
+            HStack {
+                Text("Proposé sur ton Mac").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(hasProposals ? "Régénérer" : "Générer") {
+                    if hasProposals { confirmsRegenerate = true } else { startGenerating() }
                 }
-                if working { ProgressView("Analyse de la vidéo…").controlSize(.small) }
-                if let error { Text(error).font(.callout).foregroundStyle(.red) }
-
-                section("Résumé") {
-                    TextEditor(text: $details.summary)
-                        .font(.callout)
-                        .frame(minHeight: 70)
-                        .scrollContentBackground(.hidden)
-                        .padding(6)
-                        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 8))
+                .disabled(working || transcript == nil)
+                .confirmationDialog("Remplacer le résumé, les chapitres et les tâches ?", isPresented: $confirmsRegenerate) {
+                    Button("Régénérer", role: .destructive) { startGenerating() }
+                } message: {
+                    Text("Tes modifications seront perdues.")
                 }
+            }
+            if working { ProgressView("Analyse de la vidéo…").controlSize(.small) }
+            if let error { Text(error).font(.callout).foregroundStyle(.red) }
 
-                section("Chapitres") {
-                    ForEach($details.chapters, id: \.self) { $chapter in
-                        HStack(spacing: 8) {
-                            Button(ControlBar.format(chapter.time)) { onSeek(chapter.time) }
-                                .buttonStyle(.plain)
-                                .font(.callout.monospacedDigit())
-                                .foregroundStyle(Theme.accentInk)
-                            TextField("Titre du chapitre", text: $chapter.title).textFieldStyle(.plain).font(.callout)
-                            Button { details.chapters.removeAll { $0 == chapter } } label: { Image(systemName: "minus.circle") }
-                                .buttonStyle(.plain).foregroundStyle(.secondary)
-                        }
+            InspectorSection("Résumé") {
+                TextEditor(text: $details.summary)
+                    .font(.callout)
+                    .frame(minHeight: 72)
+                    .insetField()
+            }
+
+            InspectorSection("Chapitres") {
+                // By start time: the title changes with every keystroke, and identity must not.
+                ForEach($details.chapters, id: \.time) { $chapter in
+                    HStack(spacing: 8) {
+                        Button(ControlBar.format(chapter.time)) { onSeek(chapter.time) }
+                            .buttonStyle(.plain)
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(Theme.accentInk)
+                        TextField("Titre du chapitre", text: $chapter.title).textFieldStyle(.roundedBorder).font(.callout)
+                        RemoveButton(help: "Retirer le chapitre") { details.chapters.removeAll { $0.time == chapter.time } }
                     }
-                    if details.chapters.isEmpty { placeholder("Aucun chapitre.") }
                 }
+                if details.chapters.isEmpty { InspectorPlaceholder("Aucun chapitre.") }
+            }
 
-                section("Tâches") {
-                    ForEach(details.tasks, id: \.self) { task in
-                        Label(task, systemImage: "circle").font(.callout)
-                    }
-                    if details.tasks.isEmpty { placeholder("Aucune tâche mentionnée.") }
+            InspectorSection("Tâches") {
+                ForEach(details.tasks, id: \.self) { task in
+                    Label(task, systemImage: "circle").font(.callout)
                 }
+                if details.tasks.isEmpty { InspectorPlaceholder("Aucune tâche mentionnée.") }
+            }
 
-                section("Bouton d'action") {
-                    TextField("Libellé, ex. Réserver un appel", text: $details.ctaLabel).font(.callout)
-                    TextField("Lien, ex. https://cal.com/toi", text: $details.ctaURL).font(.callout)
-                }
+            InspectorSection("Bouton d'action", hint: ctaHint) {
+                TextField("Libellé, ex. Réserver un appel", text: $details.ctaLabel).textFieldStyle(.roundedBorder)
+                TextField("Lien, ex. https://cal.com/toi", text: $details.ctaURL).textFieldStyle(.roundedBorder)
+            }
 
-                section("Transformer en document") {
-                    HStack {
-                        ForEach(DocumentKind.allCases) { kind in
-                            Button(kind.label) { Task { await makeDocument(kind) } }
-                                .controlSize(.small)
-                                .disabled(working || transcript == nil)
-                        }
+            InspectorSection("Transformer en document") {
+                HStack(spacing: Theme.Spacing.small) {
+                    ForEach(DocumentKind.allCases) { kind in
+                        Button(kind.label) { Task { await makeDocument(kind) } }
+                            .disabled(working || transcript == nil)
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 14)
         }
         .sheet(isPresented: Binding(get: { document != nil }, set: { if !$0 { document = nil } })) {
             if let document { DocumentSheet(kind: document.kind, text: document.text) }
         }
         .task(id: transcript == nil) {
-            if details.summary.isEmpty, details.chapters.isEmpty, transcript != nil { await generate() }
+            if !hasProposals, !working, transcript != nil { startGenerating() }
         }
+    }
+
+    private var hasProposals: Bool { !details.summary.isEmpty || !details.chapters.isEmpty || !details.tasks.isEmpty }
+
+    /// A link that isn't a web address would be dropped from the share page without a word.
+    private var ctaHint: String? {
+        guard !details.ctaLabel.isEmpty || !details.ctaURL.isEmpty, details.callToAction == nil else { return nil }
+        if details.ctaLabel.isEmpty { return "Ajoute un libellé pour afficher le bouton." }
+        return details.ctaURL.isEmpty ? "Ajoute un lien pour afficher le bouton." : "Le lien doit commencer par https://."
+    }
+
+    /// Not tied to this view: switching tabs must not cancel the generation.
+    private func startGenerating() {
+        Task { await generate() }
     }
 
     private func generate() async {
@@ -143,17 +158,6 @@ struct AIPanel: View {
             self.error = error.localizedDescription
         }
     }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(Theme.title(13)).foregroundStyle(.secondary)
-            content()
-        }
-    }
-
-    private func placeholder(_ text: String) -> some View {
-        Text(text).font(.callout).foregroundStyle(.tertiary)
-    }
 }
 
 private struct DocumentSheet: View {
@@ -172,9 +176,7 @@ private struct DocumentSheet: View {
             Text(kind.label).font(Theme.title(17))
             TextEditor(text: $text)
                 .font(.body)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(Theme.inset, in: RoundedRectangle(cornerRadius: 10))
+                .insetField()
             HStack {
                 Text("Généré sur ton Mac depuis la transcription").font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -188,7 +190,7 @@ private struct DocumentSheet: View {
                 .tint(Theme.accent)
             }
         }
-        .padding(20)
+        .padding(Theme.Spacing.page)
         .frame(width: 560, height: 480)
     }
 }

@@ -29,9 +29,21 @@ enum Theme {
         .custom("Instrument Sans", size: size).weight(weight)
     }
 
+    /// One spacing scale for every window: 4 between a label and its detail, 8 inside a group,
+    /// 12 between rows, 16 between sections and as the inset of panels, 20 around the editor's content.
+    enum Spacing {
+        static let tight: CGFloat = 4
+        static let small: CGFloat = 8
+        static let row: CGFloat = 12
+        static let section: CGFloat = 16
+        static let gutter: CGFloat = 20
+        static let page: CGFloat = 24
+    }
+
     enum Radius {
         static let panel: CGFloat = 18
-        static let control: CGFloat = 10
+        static let small: CGFloat = 4
+        static let control: CGFloat = 8
         static let card: CGFloat = 12
         static let bubbleSquircle: CGFloat = 0.225  // fraction of the bubble's side, the proportion of an app icon
     }

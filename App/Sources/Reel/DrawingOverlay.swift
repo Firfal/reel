@@ -17,6 +17,10 @@ final class DrawingOverlay {
         self.window = window
         window.ignoresMouseEvents = false
         window.orderFrontRegardless()
+        // Key, so Escape leaves drawing mode.
+        NSApp.activate()
+        window.makeKey()
+        window.makeFirstResponder(window.contentView)
         NSCursor.crosshair.push()
         isActive = true
     }
@@ -35,7 +39,7 @@ final class DrawingOverlay {
     }
 
     private func makeWindow(screen: NSScreen) -> NSWindow {
-        let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        let window = KeyWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.level = .floating
         window.isOpaque = false
         window.backgroundColor = .clear

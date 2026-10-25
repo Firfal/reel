@@ -11,6 +11,9 @@ struct MenuPanel: View {
     let onRecord: () -> Void
     let onOpenLibrary: () -> Void
     var onOpenSettings: () -> Void = {}
+    /// Called before a macOS window opens over the panel, so clicking in it keeps the panel open.
+    var onSystemWindow: () -> Void = {}
+    var onHeightChange: (CGFloat) -> Void = { _ in }
 
     private var cameras: [AVCaptureDevice] {
         AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified).devices
@@ -63,7 +66,10 @@ struct MenuPanel: View {
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
                     }
                     Row(symbol: "wand.and.stars", title: "Effets") {
-                        Button("Réglages vidéo…") { AVCaptureDevice.showSystemUserInterface(.videoEffects) }
+                        Button("Réglages vidéo…") {
+                            onSystemWindow()
+                            AVCaptureDevice.showSystemUserInterface(.videoEffects)
+                        }
                             .help("Flou d'arrière-plan, arrière-plans, éclairage studio : les effets vidéo de macOS")
                     }
                 }
@@ -79,7 +85,10 @@ struct MenuPanel: View {
                 }
                 if model.microphoneID != nil {
                     Row(symbol: "waveform.and.mic", title: "Bruit de fond") {
-                        Button("Isolation de la voix…") { AVCaptureDevice.showSystemUserInterface(.microphoneModes) }
+                        Button("Isolation de la voix…") {
+                            onSystemWindow()
+                            AVCaptureDevice.showSystemUserInterface(.microphoneModes)
+                        }
                             .help("Ouvre les modes micro de macOS : « Isolation de la voix » retire le bruit de fond.")
                     }
                 }
@@ -123,7 +132,7 @@ struct MenuPanel: View {
             }
             .buttonStyle(.plain)
             .disabled(model.isBusy)
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(showsNotes ? nil : .defaultAction)  // Return types a new line in the notes
 
             if model.needsScreenPermission {
                 VStack(alignment: .leading, spacing: 6) {
@@ -156,6 +165,8 @@ struct MenuPanel: View {
         .tint(Theme.accentInk)
         .focusEffectDisabled()
         .background(alignment: .top) { Theme.sidebarTint.frame(height: 140) }
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeightChange($0) }
     }
 }
 

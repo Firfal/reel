@@ -4,69 +4,72 @@ import SwiftUI
 /// The editor's Habillage tab: burned-in captions, a backdrop around the screen, and the annotations list.
 struct StylingPanel: View {
     @Binding var styling: Styling
+    let duration: Double
     let onSeek: (Double) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                section("Sous-titres dans la vidéo") {
-                    Picker("Sous-titres", selection: $styling.captions) {
-                        Text("Aucun").tag(CaptionStyle.none)
-                        Text("Classique").tag(CaptionStyle.classic)
-                        Text("Clair").tag(CaptionStyle.light)
-                    }
-                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
-                    Text("La page de partage propose aussi ses propres sous-titres, activables par le spectateur.")
-                        .font(.caption).foregroundStyle(.secondary)
+        InspectorPage {
+            InspectorSection("Sous-titres dans la vidéo", hint: "La page de partage propose aussi ses propres sous-titres, activables par le spectateur.") {
+                Picker("Sous-titres", selection: $styling.captions) {
+                    Text("Aucun").tag(CaptionStyle.none)
+                    Text("Classique").tag(CaptionStyle.classic)
+                    Text("Clair").tag(CaptionStyle.light)
                 }
-                section("Son") {
-                    HStack {
-                        Text("Voix au bon niveau")
-                        Spacer()
-                        Toggle("Voix au bon niveau", isOn: $styling.enhancesAudio)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .controlSize(.small)
-                            .tint(Theme.accent)
-                    }
-                    Text("Monte une voix trop faible et calme une voix trop forte, sans saturer.").font(.caption).foregroundStyle(.secondary)
-                }
-                section("Arrière-plan") {
-                    Picker("Arrière-plan", selection: $styling.backdrop) {
-                        Text("Aucun").tag(Backdrop.none)
-                        Text("Dégradé").tag(Backdrop.gradient)
-                        Text("Graphite").tag(Backdrop.graphite)
-                    }
-                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
-                    Text("L'écran est posé sur un fond, avec des coins arrondis et une ombre.").font(.caption).foregroundStyle(.secondary)
-                }
-                section("Annotations") {
-                    if styling.overlays.isEmpty {
-                        Text("Ajoute un texte, une flèche ou un cadre depuis la barre d'outils, puis place-le sur la vidéo.").font(.callout).foregroundStyle(.tertiary)
-                    }
-                    ForEach($styling.overlays) { $overlay in
-                        HStack(spacing: 8) {
-                            Image(systemName: Self.symbol(overlay.kind)).foregroundStyle(Theme.accentInk).frame(width: 16)
-                            Button("\(ControlBar.format(overlay.start))–\(ControlBar.format(overlay.end))") { onSeek(overlay.start) }
-                                .buttonStyle(.plain).font(.callout.monospacedDigit())
-                            if overlay.kind == .text {
-                                TextField("Texte", text: $overlay.text).textFieldStyle(.plain).font(.callout)
-                            } else {
-                                Spacer()
-                            }
-                            Stepper("", value: $overlay.end, in: (overlay.start + 1)...(overlay.start + 60), step: 1).labelsHidden()
-                            Button { styling.overlays.removeAll { $0.id == overlay.id } } label: { Image(systemName: "minus.circle") }
-                                .buttonStyle(.plain).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if !styling.isEmpty {
-                    Text("L'habillage est incrusté à l'export : le partage prend un peu plus de temps.").font(.caption).foregroundStyle(.secondary)
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+            }
+            InspectorSection("Son", hint: "Monte une voix trop faible et calme une voix trop forte, sans saturer.") {
+                HStack {
+                    Text("Voix au bon niveau")
+                    Spacer()
+                    Toggle("Voix au bon niveau", isOn: $styling.enhancesAudio)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .tint(Theme.accent)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 14)
+            InspectorSection("Arrière-plan", hint: "L'écran est posé sur un fond, avec des coins arrondis et une ombre.") {
+                Picker("Arrière-plan", selection: $styling.backdrop) {
+                    Text("Aucun").tag(Backdrop.none)
+                    Text("Dégradé").tag(Backdrop.gradient)
+                    Text("Graphite").tag(Backdrop.graphite)
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+            }
+            InspectorSection("Annotations") {
+                if styling.overlays.isEmpty {
+                    InspectorPlaceholder("Ajoute un texte, une flèche ou un cadre depuis la barre d'outils, puis place-le sur la vidéo.")
+                }
+                ForEach($styling.overlays) { $overlay in
+                    HStack(spacing: 8) {
+                        Image(systemName: Self.symbol(overlay.kind)).foregroundStyle(Theme.accentInk).frame(width: 16)
+                        Button("\(ControlBar.format(overlay.start))–\(ControlBar.format(overlay.end))") { onSeek(overlay.start) }
+                            .buttonStyle(.plain).font(.callout.monospacedDigit())
+                        if overlay.kind == .text {
+                            TextField("Texte", text: $overlay.text).textFieldStyle(.roundedBorder).font(.callout)
+                        } else {
+                            Spacer()
+                        }
+                        Stepper(value: length($overlay), in: 1...60) {
+                            Text("\(Int(overlay.end - overlay.start)) s").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        .help("Durée à l'écran")
+                        RemoveButton(help: "Retirer l'annotation") { styling.overlays.removeAll { $0.id == overlay.id } }
+                    }
+                }
+            }
+            if !styling.isEmpty {
+                InspectorHint("L'habillage est incrusté à l'export : le partage prend un peu plus de temps.")
+            }
         }
+    }
+
+    /// Seconds on screen, never past the end of the video.
+    private func length(_ overlay: Binding<Overlay>) -> Binding<Double> {
+        Binding(
+            get: { (overlay.wrappedValue.end - overlay.wrappedValue.start).rounded() },
+            set: { overlay.wrappedValue.end = min(duration, overlay.wrappedValue.start + $0) }
+        )
     }
 
     static func symbol(_ kind: Overlay.Kind) -> String {
@@ -74,13 +77,6 @@ struct StylingPanel: View {
         case .text: "textformat"
         case .arrow: "arrow.up.right"
         case .box: "rectangle"
-        }
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(Theme.title(13)).foregroundStyle(.secondary)
-            content()
         }
     }
 }
@@ -122,7 +118,7 @@ struct OverlayCanvas: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.black)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 8))
+                .background(.white.opacity(0.94), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
         }
     }
 

@@ -40,17 +40,24 @@ struct FilmstripTimeline: View {
                     applyTrim()
                 }
             }
+            .coordinateSpace(.named(Self.space))
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
                 onSeek(min(max(0, Double(value.location.x / width) * duration), duration))
             })
             .task(id: Int(width / 40)) { await loadFrames(count: max(4, Int(width / 72))) }
         }
-        .onAppear {
-            let cuts = edit.normalizedCuts(duration: duration)
-            trimStart = cuts.first(where: { $0.lowerBound <= 0.01 })?.upperBound ?? 0
-            trimEnd = cuts.last(where: { $0.upperBound >= duration - 0.01 })?.lowerBound ?? duration
-        }
+        .onAppear(perform: readTrim)
+        // « Tout remettre », or cuts from the transcript that reach an end, move the handles too.
+        .onChange(of: edit) { readTrim() }
+    }
+
+    private static let space = "filmstrip"
+
+    private func readTrim() {
+        let cuts = edit.normalizedCuts(duration: duration)
+        trimStart = cuts.first(where: { $0.lowerBound <= 0.01 })?.upperBound ?? 0
+        trimEnd = cuts.last(where: { $0.upperBound >= duration - 0.01 })?.lowerBound ?? duration
     }
 
     private func strip(width: CGFloat, height: CGFloat) -> some View {
@@ -68,8 +75,8 @@ struct FilmstripTimeline: View {
             }
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).stroke(Theme.line))
     }
 
     private func playhead(at x: CGFloat, height: CGFloat) -> some View {
@@ -85,14 +92,15 @@ struct FilmstripTimeline: View {
     }
 
     private func handle(at x: CGFloat, height: CGFloat, leading: Bool, onDrag: @escaping (CGFloat) -> Void) -> some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
+        RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
             .fill(Theme.accent)
             .frame(width: 10, height: height)
             .overlay(Capsule().fill(.white.opacity(0.9)).frame(width: 2, height: 18))
             .offset(x: leading ? x : x - 10, y: 20)
-            .gesture(DragGesture().onChanged { value in onDrag(value.location.x + (leading ? 0 : 0)) })
+            // In the timeline's space: the handle's own space is only 10 points wide.
+            .highPriorityGesture(DragGesture(coordinateSpace: .named(Self.space)).onChanged { value in onDrag(value.location.x) })
             .help(leading ? "Couper le début" : "Couper la fin")
-            .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+            .pointerStyle(.columnResize)
     }
 
     private func applyTrim() {

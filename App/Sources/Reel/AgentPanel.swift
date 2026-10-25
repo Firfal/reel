@@ -10,17 +10,16 @@ struct AgentPanel: View {
     private var planURL: URL { folder.appendingPathComponent("plan.md") }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Les clics et ta voix, fusionnés en un plan qu'un agent peut suivre.")
-                .font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Spacing.row) {
+            InspectorHint("Les clics et ta voix, fusionnés en un plan qu'un agent peut suivre.")
             ScrollView {
                 Text(plan)
                     .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
+                    .padding(Theme.Spacing.small)
             }
-            .background(Theme.inset, in: RoundedRectangle(cornerRadius: 10))
+            .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
             HStack {
                 Button(copied ? "Copié" : "Copier le prompt") {
                     NSPasteboard.general.clearContents()
@@ -33,10 +32,9 @@ struct AgentPanel: View {
                 Spacer()
                 Button("Captures") { NSWorkspace.shared.open(folder) }.buttonStyle(.link)
             }
-            .controlSize(.small)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 14)
+        .padding(.horizontal, Theme.Spacing.section)
+        .padding(.bottom, Theme.Spacing.section)
         .onAppear { plan = (try? String(contentsOf: planURL, encoding: .utf8)) ?? "" }
     }
 

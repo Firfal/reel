@@ -10,6 +10,22 @@ final class SpeakerNotes {
     }
     /// Points per second.
     var speed: Double = 14
+    let dictation = Dictation()
+    private(set) var structuring = false
+
+    func toggleDictation() async {
+        if dictation.isListening { await finishDictation() } else { await dictation.start() }
+    }
+
+    /// Stops listening and turns what was said into talking points.
+    func finishDictation() async {
+        guard dictation.isListening else { return }
+        let spoken = await dictation.stop()
+        guard !spoken.isEmpty else { return }
+        structuring = true
+        text = (try? await VideoAI.talkingPoints(from: spoken)) ?? spoken
+        structuring = false
+    }
 
     init() {
         text = UserDefaults.standard.string(forKey: "speakerNotes") ?? ""
@@ -20,11 +36,11 @@ final class SpeakerNotes {
 final class TeleprompterController {
     private var panel: NSPanel?
 
-    func show(notes: SpeakerNotes, next anchor: NSRect?) {
+    func show(notes: SpeakerNotes, model: AppModel? = nil, next anchor: NSRect?) {
         guard !notes.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let panel = panel ?? makePanel()
         self.panel = panel
-        panel.contentView = NSHostingView(rootView: TeleprompterView(notes: notes))
+        panel.contentView = NSHostingView(rootView: TeleprompterView(notes: notes, model: model))
         place(next: anchor)
         panel.orderFrontRegardless()
     }
@@ -66,11 +82,13 @@ final class TeleprompterController {
 
 private struct TeleprompterView: View {
     let notes: SpeakerNotes
-    @State private var start = Date.now
+    /// Scrolls only while recording: still during the countdown and while paused. Without a model it always scrolls.
+    let model: AppModel?
+    @State private var clock = ScrollClock()
 
     var body: some View {
         TimelineView(.animation) { context in
-            let offset = context.date.timeIntervalSince(start) * notes.speed
+            let offset = clock.advance(to: context.date, running: model.map { $0.recorderState == .recording } ?? true) * notes.speed
             Text(notes.text)
                 .font(.system(size: 17, weight: .medium))
                 .lineSpacing(5)
@@ -82,37 +100,39 @@ private struct TeleprompterView: View {
         .clipped()
         .mask(LinearGradient(colors: [.clear, .black, .black, .clear], startPoint: .top, endPoint: .bottom))
         .glassEffect(.regular, in: .rect(cornerRadius: Theme.Radius.control))
-        .onTapGesture { start = .now }
+        .onTapGesture { clock.reset() }
         .help("Clic pour reprendre au début")
     }
+}
+
+/// Seconds of scrolling so far, counting only the frames where scrolling runs. Not observed: the timeline redraws it.
+private final class ScrollClock {
+    private var elapsed: TimeInterval = 0
+    private var last: Date?
+
+    func advance(to date: Date, running: Bool) -> TimeInterval {
+        if running, let last { elapsed += min(date.timeIntervalSince(last), 0.1) }
+        last = date
+        return elapsed
+    }
+
+    func reset() { elapsed = 0 }
 }
 
 /// Notes editor in the menu bar panel, with dictation that the AI turns into talking points.
 struct NotesEditor: View {
     @Bindable var notes: SpeakerNotes
-    @State private var dictation = Dictation()
-    @State private var structuring = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Écris ou dicte : l'IA en fait des points courts.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button(dictation.isListening ? "Arrêter" : "Dicter") {
-                    Task {
-                        if dictation.isListening {
-                            let spoken = await dictation.stop()
-                            guard !spoken.isEmpty else { return }
-                            structuring = true
-                            notes.text = (try? await VideoAI.talkingPoints(from: spoken)) ?? spoken
-                            structuring = false
-                        } else {
-                            await dictation.start()
-                        }
-                    }
+                Button(notes.dictation.isListening ? "Arrêter" : "Dicter") {
+                    Task { await notes.toggleDictation() }
                 }
                 .controlSize(.small)
-                .disabled(structuring)
+                .disabled(notes.structuring)
             }
             TextEditor(text: $notes.text)
                 .font(.callout)
@@ -120,8 +140,8 @@ struct NotesEditor: View {
                 .scrollContentBackground(.hidden)
                 .padding(4)
                 .background(Theme.inset.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
-            if dictation.isListening { Text(dictation.partial.isEmpty ? "J'écoute…" : dictation.partial).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-            if structuring { ProgressView("Mise en points…").controlSize(.small) }
+            if notes.dictation.isListening { Text(notes.dictation.partial.isEmpty ? "J'écoute…" : notes.dictation.partial).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+            if notes.structuring { ProgressView("Mise en points…").controlSize(.small) }
         }
     }
 }

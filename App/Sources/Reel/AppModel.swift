@@ -12,7 +12,7 @@ enum SourceKind: String, CaseIterable, Identifiable {
     var id: Self { self }
     var label: String {
         switch self {
-        case .screen: "Plein écran"
+        case .screen: "Écran"
         case .window: "Fenêtre"
         case .region: "Zone"
         case .camera: "Caméra"
@@ -67,6 +67,10 @@ final class AppModel {
     private var recorder: Recorder?
     private var currentItem: VideoItem?
     private var agentCapture: AgentCapture?
+    /// Set by stop or cancel during the countdown, so the capture never starts.
+    private var countdownCancelled = false
+    /// Identifies the recording that `after` describes, so an older one still uploading can't overwrite it.
+    private var afterToken = UUID()
 
     var isBusy: Bool { recorderState != .idle || countdown != nil }
 
@@ -77,12 +81,16 @@ final class AppModel {
     func startRecording(excludingWindows excluded: [CGWindowID] = []) async {
         guard !isBusy else { return }
         lastError = nil
+        afterToken = UUID()
         after = .idle
+        countdownCancelled = false
         for value in [3, 2, 1] {
             countdown = value
             try? await Task.sleep(for: .seconds(1))
+            if countdownCancelled { break }
         }
         countdown = nil
+        guard !countdownCancelled else { return }
 
         let item = VideoItem(title: VideoItem.defaultTitle(for: .now), duration: 0)
         let recorder = Recorder(workingDirectory: library.workingDirectory(for: item.id))
@@ -127,6 +135,7 @@ final class AppModel {
     }
 
     func cancelRecording() async {
+        if countdown != nil { countdownCancelled = true }
         guard let recorder, let item = currentItem else { return }
         _ = await agentCapture?.stop()
         agentCapture = nil
@@ -138,14 +147,17 @@ final class AppModel {
     }
 
     func stopRecording() async {
+        if countdown != nil { countdownCancelled = true }
         guard let recorder, var item = currentItem else { return }
+        let token = afterToken
+        func report(_ state: AfterRecording) { if afterToken == token { after = state } }
         self.recorder = nil
         currentItem = nil
         recorderState = .idle
         let agentEvents = await agentCapture?.stop()
         agentCapture = nil
         do {
-            after = .assembling
+            report(.assembling)
             let segments = try await recorder.stop()
             let videoURL = library.videoURL(for: item.id)
             item.duration = try await Composer.stitch(segments, to: videoURL)
@@ -156,7 +168,7 @@ final class AppModel {
             let preview = try? await Thumbnails.gif(from: videoURL)
             if let preview { try? preview.write(to: library.folder(for: item.id).appendingPathComponent("preview.gif")) }
 
-            after = .transcribing
+            report(.transcribing)
             let transcript = try? await Transcriber.transcribe(videoURL)
             if let transcript {
                 try? JSONEncoder().encode(transcript).write(to: library.folder(for: item.id).appendingPathComponent("transcript.json"))
@@ -171,16 +183,16 @@ final class AppModel {
             }
 
             guard let account = await CloudAccount.current() else {
-                after = .done(nil)
+                report(.done(nil))
                 NSWorkspace.shared.activateFileViewerSelecting([videoURL])
                 return
             }
-            after = .uploading(0)
+            report(.uploading(0))
             var metadata = ShareMetadata(title: item.title, duration: item.duration)
             if let transcript { metadata.captions = Captions.webVTT(from: transcript, duration: item.duration) }
             let client = CloudClient(account: account)
             let uploaded = try await client.upload(videoURL, metadata: metadata) { value in
-                Task { @MainActor [weak self] in self?.after = .uploading(value) }
+                Task { @MainActor [weak self] in self?.reportUpload(value, token: token) }
             }
             if let thumbnail { try? await client.uploadThumbnail(thumbnail, videoID: uploaded.id) }
             if let preview { try? await client.uploadPreview(preview, videoID: uploaded.id) }
@@ -188,12 +200,16 @@ final class AppModel {
             try library.save(item)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(uploaded.url.absoluteString, forType: .string)
-            after = .done(uploaded.url)
+            report(.done(uploaded.url))
             await Notifier.linkCopied(title: item.title)
         } catch {
-            after = .failed(error.localizedDescription)
+            report(.failed(error.localizedDescription))
             log.error("After recording failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func reportUpload(_ value: Double, token: UUID) {
+        if afterToken == token { after = .uploading(value) }
     }
 
     /// Copies an existing video into the library, then makes its thumbnail and transcript.

@@ -21,6 +21,10 @@ final class OnboardingController {
             NSApp.setActivationPolicy(.accessory)
         }.tint(Theme.accent))
         window.center()
+        // Closed with the red button: back to a menu bar app, without a Dock icon.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+            MainActor.assumeIsolated { NSApp.setActivationPolicy(.accessory) }
+        }
         self.window = window
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
@@ -37,14 +41,14 @@ struct OnboardingView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.row) {
                 PlayheadPill(progress: Double(step.rawValue + 1) / 3, height: 4).frame(width: 120)
                 Text(title).font(Theme.title(26)).fixedSize(horizontal: false, vertical: true)
                 Text(subtitle).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Text("Étape \(step.rawValue + 1) sur 3").font(.caption).foregroundStyle(.secondary)
             }
-            .padding(28)
+            .padding(Theme.Spacing.page)
             .frame(width: 230, alignment: .leading)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(alignment: .top) { Theme.sidebarTint.ignoresSafeArea() }
@@ -56,7 +60,7 @@ struct OnboardingView: View {
                 case .ai: AIStep(onFinish: onFinish)
                 }
             }
-            .padding(28)
+            .padding(Theme.Spacing.page)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Theme.canvas)
         }
@@ -87,22 +91,33 @@ private struct PermissionsStep: View {
     @State private var microphone = AVCaptureDevice.authorizationStatus(for: .audio)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.row) {
             row("Enregistrement de l'écran", granted: screen) {
                 CGRequestScreenCaptureAccess()
                 NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
             }
             row("Caméra", granted: camera == .authorized) {
+                // Once refused, macOS no longer asks: only System Settings can change the answer.
+                guard camera == .notDetermined else { return Self.openPrivacy("Privacy_Camera") }
                 AVCaptureDevice.requestAccess(for: .video) { _ in Task { @MainActor in camera = AVCaptureDevice.authorizationStatus(for: .video) } }
             }
             row("Micro", granted: microphone == .authorized) {
+                guard microphone == .notDetermined else { return Self.openPrivacy("Privacy_Microphone") }
                 AVCaptureDevice.requestAccess(for: .audio) { _ in Task { @MainActor in microphone = AVCaptureDevice.authorizationStatus(for: .audio) } }
             }
             Text("Pour l'écran, active Reel dans Réglages Système, puis reviens ici.").font(.caption).foregroundStyle(.secondary)
             Spacer()
             HStack { Spacer(); Button("Continuer", action: onNext).buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction) }
         }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in screen = CGPreflightScreenCaptureAccess() }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            screen = CGPreflightScreenCaptureAccess()
+            camera = AVCaptureDevice.authorizationStatus(for: .video)
+            microphone = AVCaptureDevice.authorizationStatus(for: .audio)
+        }
+    }
+
+    private static func openPrivacy(_ anchor: String) {
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!)
     }
 
     private func row(_ title: String, granted: Bool, action: @escaping () -> Void) -> some View {
@@ -112,12 +127,14 @@ private struct PermissionsStep: View {
             Spacer()
             if !granted { Button("Autoriser", action: action).controlSize(.small) }
         }
-        .padding(12)
-        .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+        .padding(Theme.Spacing.row)
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
     }
 }
 
 struct SharingStep: View {
+    /// Nil in Settings, where there is no next step to skip to.
+    var skipTitle: String? = "Garder les vidéos sur mon Mac"
     let onNext: () -> Void
     @State private var token = ""
     @State private var current: CloudSetup.Step?
@@ -153,7 +170,7 @@ struct SharingStep: View {
                 if let error { Text(error).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
                 Spacer()
                 HStack {
-                    Button("Garder les vidéos sur mon Mac", action: onNext).buttonStyle(.link)
+                    if let skipTitle { Button(skipTitle, action: onNext).buttonStyle(.link) }
                     Spacer()
                     Button("Installer") { Task { await install() } }
                         .buttonStyle(.borderedProminent)
@@ -210,6 +227,7 @@ private struct AIStep: View {
                 Spacer()
                 Button("Commencer") {
                     AIEngine.current = engine
+                    let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !key.isEmpty { try? ClaudeKey.save(key) }
                     onFinish()
                 }

@@ -77,7 +77,7 @@ private struct StorageSettings: View {
             } else if let account {
                 LabeledContent("Serveur de partage", value: account.serverURL.host() ?? account.serverURL.absoluteString)
                 if let usage {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.small) {
                         HStack {
                             Text("Stockage utilisé")
                             Spacer()
@@ -90,22 +90,30 @@ private struct StorageSettings: View {
                     LabeledContent("Lectures ce mois-ci", value: "\(usage.readOps.formatted()) sur \(usage.readOpsCap.formatted())")
                     LabeledContent("Envois ce mois-ci", value: "\(usage.writeOps.formatted()) sur \(usage.writeOpsCap.formatted())")
                 } else if let error {
-                    Text(error).foregroundStyle(.red)
+                    LabeledContent {
+                        Button("Réessayer") { Task { await load() } }
+                    } label: {
+                        Text("Serveur injoignable")
+                        Text(error)
+                    }
                 } else {
                     ProgressView().controlSize(.small)
                 }
             } else {
                 Text("Aucun serveur de partage. Les vidéos restent sur ton Mac.")
-                SharingStep { self.account = CloudAccount.load() }
+                SharingStep(skipTitle: nil) { Task { await load() } }
             }
         }
         .formStyle(.grouped)
-        .task {
-            account = await CloudAccount.current()
-            loaded = true
-            guard let account else { return }
-            do { usage = try await CloudClient(account: account).usage() } catch { self.error = error.localizedDescription }
-        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        account = await CloudAccount.current()
+        loaded = true
+        guard let account else { return }
+        error = nil
+        do { usage = try await CloudClient(account: account).usage() } catch { self.error = error.localizedDescription }
     }
 
     static func gigabytes(_ bytes: Int64) -> String {
@@ -117,7 +125,7 @@ private struct AISettings: View {
     @State private var engine = AIEngine.current
     @State private var key = ""
     @State private var hasKey = false
-    @State private var saved = false
+    @State private var status: String?
 
     var body: some View {
         Form {
@@ -134,17 +142,20 @@ private struct AISettings: View {
                     Text("Gratuit et privé : la vidéo et sa transcription ne quittent pas ton Mac.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                SecureField(hasKey ? "Clé enregistrée — colle une nouvelle clé pour la remplacer" : "sk-ant-…", text: $key)
+                SecureField("Clé d'API", text: $key, prompt: Text(hasKey ? "Clé enregistrée : colle une nouvelle clé pour la remplacer" : "sk-ant-…"))
                 HStack {
                     Button("Enregistrer la clé") {
-                        guard !key.isEmpty else { return }
-                        try? ClaudeKey.save(key.trimmingCharacters(in: .whitespacesAndNewlines))
-                        key = ""
-                        hasKey = true
-                        saved = true
+                        do {
+                            try ClaudeKey.save(key.trimmingCharacters(in: .whitespacesAndNewlines))
+                            key = ""
+                            hasKey = true
+                            status = "Clé enregistrée"
+                        } catch {
+                            status = "Échec de l'enregistrement : \(error.localizedDescription)"
+                        }
                     }
-                    .disabled(key.isEmpty)
-                    if saved { Text("Clé enregistrée").font(.caption).foregroundStyle(.secondary) }
+                    .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
                 }
                 Text("La transcription est envoyée à Claude pour écrire titres, résumés et documents. La clé reste sur ton Mac, lisible par toi seul.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -157,15 +168,23 @@ private struct AISettings: View {
 
 private struct BrandSettings: View {
     @State private var branding: CloudClient.Branding?
-    @State private var color = Color(light: 0xE2703A, dark: 0xE2703A)
+    @State private var color = Theme.accent
     @State private var status: String?
     @State private var account: CloudAccount?
     @State private var loaded = false
+    @State private var loadFailed = false
 
     var body: some View {
         Form {
             if !loaded {
                 ProgressView().controlSize(.small)
+            } else if loadFailed {
+                LabeledContent {
+                    Button("Réessayer") { Task { await load() } }
+                } label: {
+                    Text("Serveur injoignable")
+                    Text("Impossible de lire l'identité de la page de partage.")
+                }
             } else if account == nil {
                 Text("Configure d'abord un serveur de partage dans l'onglet Stockage.")
             } else if let binding = Binding($branding) {
@@ -190,13 +209,20 @@ private struct BrandSettings: View {
             }
         }
         .formStyle(.grouped)
-        .task {
-            account = await CloudAccount.current()
-            loaded = true
-            guard let account, let saved = try? await CloudClient(account: account).branding() else { return }
+        .task { await load() }
+    }
+
+    private func load() async {
+        account = await CloudAccount.current()
+        loadFailed = false
+        guard let account else { loaded = true; return }
+        if let saved = try? await CloudClient(account: account).branding() {
             branding = saved
             color = Color(hex: saved.playerColor) ?? color
+        } else {
+            loadFailed = true
         }
+        loaded = true
     }
 
     private func save() async {

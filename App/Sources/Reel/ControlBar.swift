@@ -86,8 +86,7 @@ struct ControlBar: View {
                     .foregroundStyle(Theme.onAccent)
             }
             .buttonStyle(.plain)
-            .help("Terminer")
-            .keyboardShortcut(.return, modifiers: [.option, .shift])
+            .help("Terminer (⌥⇧R)")
         }
         .padding(6)
         .glassEffect(.regular, in: .capsule)
