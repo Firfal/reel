@@ -4,7 +4,8 @@ import SwiftUI
 /// The editor's Partage tab: who can watch, clickable links in the video, and who watched.
 struct SharePanel: View {
     let item: VideoItem
-    let currentTime: Double
+    let clock: PlaybackClock
+    private var currentTime: Double { clock.time }
     @Binding var details: SharedDetails
 
     @State private var insights: CloudClient.Insights?
@@ -41,11 +42,14 @@ struct SharePanel: View {
                 }
                 TextField("Texte du bouton", text: $newLinkLabel).textFieldStyle(.roundedBorder)
                 TextField("https://…", text: $newLinkURL).textFieldStyle(.roundedBorder)
-                Button("Ajouter à \(ControlBar.format(currentTime))") {
+                Button {
                     guard let url = URL(string: newLinkURL), url.scheme?.hasPrefix("http") == true, !newLinkLabel.isEmpty else { return }
                     details.links.append(.init(start: currentTime, end: min(item.duration, currentTime + 5), label: newLinkLabel, url: url))
                     newLinkLabel = ""
                     newLinkURL = ""
+                } label: {
+                    // Only the label follows the playhead.
+                    PlayheadLabel(clock: clock) { "Ajouter à \(ControlBar.format($0))" }
                 }
                 .controlSize(.small)
                 .disabled(newLinkLabel.isEmpty || URL(string: newLinkURL)?.scheme?.hasPrefix("http") != true)
@@ -109,4 +113,12 @@ struct SharePanel: View {
         }
         insights = loaded
     }
+}
+
+/// Text that follows the playhead without redrawing its container.
+struct PlayheadLabel: View {
+    let clock: PlaybackClock
+    let text: (Double) -> String
+
+    var body: some View { Text(text(clock.time)) }
 }

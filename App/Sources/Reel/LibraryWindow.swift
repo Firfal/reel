@@ -234,6 +234,9 @@ private struct VideoCard: View {
     let item: VideoItem
     let folder: URL
     @State private var hovering = false
+    /// Decoded once, at card size: AsyncImage would decode the full JPEG again after every hover.
+    @State private var image: NSImage?
+    @State private var hasPreview = false
 
     private var thumbnail: URL { folder.appendingPathComponent("thumbnail.jpg") }
     private var preview: URL { folder.appendingPathComponent("preview.gif") }
@@ -241,18 +244,15 @@ private struct VideoCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .bottomTrailing) {
-                Group {
-                    if hovering, FileManager.default.fileExists(atPath: preview.path) {
-                        AnimatedImage(url: preview)
-                    } else {
-                        AsyncImage(url: thumbnail) { image in
-                            image.resizable().aspectRatio(16 / 10, contentMode: .fill)
-                        } placeholder: {
-                            Theme.inset
-                        }
+                Theme.inset
+                    .overlay {
+                        if let image { Image(nsImage: image).resizable().aspectRatio(contentMode: .fill) }
                     }
-                }
-                .aspectRatio(16 / 10, contentMode: .fit)
+                    .overlay {
+                        // The GIF plays over the still, so leaving the card shows the still at once.
+                        if hovering, hasPreview { AnimatedImage(url: preview) }
+                    }
+                    .aspectRatio(16 / 10, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                 Text(ControlBar.format(item.duration))
                     .font(.caption.monospacedDigit().weight(.semibold))
@@ -278,6 +278,23 @@ private struct VideoCard: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(Theme.Motion.standard, value: hovering)
+        .task(id: item.id) {
+            let (url, previewURL) = (thumbnail, preview)
+            let loaded = await Task.detached(priority: .utility) { () -> (CGImage?, Bool) in
+                (Self.downsample(url, maxPixels: 640), FileManager.default.fileExists(atPath: previewURL.path))
+            }.value
+            image = loaded.0.map { NSImage(cgImage: $0, size: .zero) }
+            hasPreview = loaded.1
+        }
+    }
+
+    nonisolated private static func downsample(_ url: URL, maxPixels: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
     }
 }
 

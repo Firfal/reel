@@ -84,10 +84,11 @@ struct StylingPanel: View {
 /// Annotations active at the current time, drawn over the player and draggable to reposition.
 struct OverlayCanvas: View {
     @Binding var styling: Styling
-    let currentTime: Double
+    let clock: PlaybackClock
     let videoAspect: CGFloat
 
     var body: some View {
+        let currentTime = clock.time
         GeometryReader { geometry in
             let video = Self.fit(aspect: videoAspect, in: geometry.size)
             ZStack(alignment: .topLeading) {

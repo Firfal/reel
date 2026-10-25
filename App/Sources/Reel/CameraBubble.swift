@@ -62,12 +62,12 @@ final class CameraBubbleController {
         applyShape(animated: false)
         if !panel.isVisible { placeInCorner(panel, animated: false) }
         panel.orderFrontRegardless()
-        if !session.isRunning { runner.start() }
+        runner.start()
     }
 
     func hide() {
         panel?.orderOut(nil)
-        if session.isRunning { runner.stop() }
+        runner.stop()
     }
 
     func update(shape: BubbleShape, size: BubbleSize) {
@@ -79,17 +79,13 @@ final class CameraBubbleController {
     // MARK: Setup
 
     private func configureSession(cameraID: String?) {
-        guard cameraID != self.cameraID || session.inputs.isEmpty else { return }
+        guard cameraID != self.cameraID || !configured else { return }
         self.cameraID = cameraID
-        session.beginConfiguration()
-        session.inputs.forEach(session.removeInput)
-        session.sessionPreset = .high
-        let device = cameraID.flatMap(AVCaptureDevice.init(uniqueID:)) ?? AVCaptureDevice.default(for: .video)
-        if let device, let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) {
-            session.addInput(input)
-        }
-        session.commitConfiguration()
+        configured = true
+        runner.configure(cameraID: cameraID)
     }
+
+    private var configured = false
 
     private func makePanel() -> NSPanel {
         let panel = BubblePanel(
@@ -232,6 +228,22 @@ nonisolated final class SessionRunner: @unchecked Sendable {
 
     init(session: AVCaptureSession) { self.session = session }
 
-    func start() { queue.async { self.session.startRunning() } }
-    func stop() { queue.async { self.session.stopRunning() } }
+    /// Opening the camera takes a few hundred milliseconds: never on the main thread, where the panel would stall.
+    func configure(cameraID: String?) {
+        queue.async {
+            let session = self.session
+            session.beginConfiguration()
+            session.inputs.forEach(session.removeInput)
+            // 720p is sharper than the largest bubble needs, and much lighter than the camera's full resolution.
+            session.sessionPreset = session.canSetSessionPreset(.hd1280x720) ? .hd1280x720 : .high
+            let device = cameraID.flatMap(AVCaptureDevice.init(uniqueID:)) ?? AVCaptureDevice.default(for: .video)
+            if let device, let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input) {
+                session.addInput(input)
+            }
+            session.commitConfiguration()
+        }
+    }
+
+    func start() { queue.async { if !self.session.isRunning { self.session.startRunning() } } }
+    func stop() { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
 }

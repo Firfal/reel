@@ -14,7 +14,10 @@ struct EditorView: View {
     @State private var edit = Edit()
     @State private var transcript: Transcript?
     @State private var title = ""
-    @State private var currentTime: Double = 0
+    /// The playhead, read only by the views that show it: the rest of the editor doesn't redraw 20 times a second.
+    @State private var clock = PlaybackClock()
+    private var currentTime: Double { clock.time }
+    @State private var suggestions = CleanupSuggestions()
     @State private var sharing: AfterRecording = .idle
     @State private var shareURL: URL?
     @State private var timeObserver: Any?
@@ -61,7 +64,7 @@ struct EditorView: View {
         VStack(spacing: 0) {
             header
             PlayerView(player: player)
-                .overlay { OverlayCanvas(styling: $styling, currentTime: currentTime, videoAspect: videoAspect) }
+                .overlay { OverlayCanvas(styling: $styling, clock: clock, videoAspect: videoAspect) }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                 .frame(minHeight: 240)
                 .padding(.horizontal, Self.gutter)
@@ -69,7 +72,7 @@ struct EditorView: View {
                 videoURL: library.videoURL(for: item.id),
                 duration: item.duration,
                 edit: $edit,
-                currentTime: currentTime,
+                clock: clock,
                 onSeek: seek
             )
             .frame(height: 92)
@@ -94,7 +97,10 @@ struct EditorView: View {
         }
         .onChange(of: details) { try? JSONEncoder().encode(details).write(to: detailsURL) }
         .onChange(of: styling) { try? JSONEncoder().encode(styling).write(to: stylingURL) }
-        .task { levels = try? await AudioLevels.measure(library.videoURL(for: item.id)) }
+        .task {
+            levels = try? await AudioLevels.measure(library.videoURL(for: item.id))
+            computeSuggestions()
+        }
     }
 
     /// Player, timeline and title share one edge.
@@ -212,7 +218,7 @@ struct EditorView: View {
             Group {
                 switch tab {
                 case .styling: StylingPanel(styling: $styling, duration: item.duration, onSeek: seek)
-                case .share: SharePanel(item: item, currentTime: currentTime, details: $details)
+                case .share: SharePanel(item: item, clock: clock, details: $details)
                 case .agent: AgentPanel(folder: agentFolder)
                 case .ai: AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek, working: $aiWorking)
                 case .transcript: transcriptPanel
@@ -225,8 +231,7 @@ struct EditorView: View {
 
     @ViewBuilder private var transcriptPanel: some View {
         if let transcript {
-            let hesitations = levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript)
-            let silences = levels?.silences(duration: item.duration) ?? Cleanup.silences(in: transcript, duration: item.duration)
+            let hesitations = suggestions.hesitations, silences = suggestions.silences
             VStack(alignment: .leading, spacing: Theme.Spacing.row) {
                 HStack(spacing: Theme.Spacing.small) {
                     Button("Hésitations (\(hesitations.count))") { edit.cuts += hesitations }
@@ -238,15 +243,8 @@ struct EditorView: View {
                 }
                 .controlSize(.small)
                 ScrollView {
-                    WordFlow(spacing: 2) {
-                        ForEach(Array(transcript.words.enumerated()), id: \.offset) { _, word in
-                            WordChip(
-                                word: word,
-                                isCut: isCut(word),
-                                isCurrent: currentTime >= word.start && currentTime < word.end
-                            ) { toggle(word) }
-                        }
-                    }
+                    TranscriptWords(words: transcript.words, cut: Set(transcript.words.indices.filter { isCut(transcript.words[$0]) }),
+                                    clock: clock, onToggle: toggle)
                 }
                 Text("Clique sur un mot pour le couper, clique à nouveau pour le remettre.")
                     .font(.caption)
@@ -320,9 +318,10 @@ struct EditorView: View {
         if let data = try? Data(contentsOf: folder.appendingPathComponent("transcript.json")) {
             transcript = try? JSONDecoder().decode(Transcript.self, from: data)
         }
+        computeSuggestions()
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { time in
             MainActor.assumeIsolated {
-                currentTime = time.seconds
+                clock.time = time.seconds
                 // Skip over cut ranges during preview, so playback matches the edited video.
                 let duration = item.duration
                 if let cut = edit.normalizedCuts(duration: duration).first(where: { $0.contains(time.seconds) && $0.upperBound - time.seconds > 0.05 }) {
@@ -336,6 +335,15 @@ struct EditorView: View {
         saveTitle()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         player.pause()
+    }
+
+    /// Finding hesitations reads the whole transcript and audio: once per video, not at every redraw.
+    private func computeSuggestions() {
+        guard let transcript else { return }
+        suggestions = CleanupSuggestions(
+            hesitations: levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript),
+            silences: levels?.silences(duration: item.duration) ?? Cleanup.silences(in: transcript, duration: item.duration)
+        )
     }
 
     private func save() {
@@ -449,7 +457,50 @@ struct EditorView: View {
     }
 }
 
-private struct WordChip: View {
+@Observable
+final class PlaybackClock {
+    var time: Double = 0
+}
+
+struct CleanupSuggestions {
+    var hesitations: [ClosedRange<Double>] = []
+    var silences: [ClosedRange<Double>] = []
+}
+
+/// The transcript as clickable words. Only this view follows the playhead, and only the chips whose
+/// state changes redraw.
+private struct TranscriptWords: View {
+    let words: [TranscriptWord]
+    let cut: Set<Int>
+    let clock: PlaybackClock
+    let onToggle: (TranscriptWord) -> Void
+
+    var body: some View {
+        let current = currentIndex(at: clock.time)
+        WordFlow(spacing: 2) {
+            ForEach(words.indices, id: \.self) { index in
+                WordChip(word: words[index], isCut: cut.contains(index), isCurrent: index == current) { onToggle(words[index]) }
+                    .equatable()
+            }
+        }
+    }
+
+    /// Words are in time order: a binary search finds the one being spoken.
+    private func currentIndex(at time: Double) -> Int? {
+        var low = 0, high = words.count - 1
+        while low <= high {
+            let middle = (low + high) / 2
+            if time < words[middle].start { high = middle - 1 } else if time >= words[middle].end { low = middle + 1 } else { return middle }
+        }
+        return nil
+    }
+}
+
+private struct WordChip: View, Equatable {
+    static func == (a: WordChip, b: WordChip) -> Bool {
+        a.word == b.word && a.isCut == b.isCut && a.isCurrent == b.isCurrent
+    }
+
     let word: TranscriptWord
     let isCut: Bool
     let isCurrent: Bool

@@ -8,7 +8,7 @@ struct FilmstripTimeline: View {
     let videoURL: URL
     let duration: Double
     @Binding var edit: Edit
-    let currentTime: Double
+    let clock: PlaybackClock
     let onSeek: (Double) -> Void
 
     @State private var frames: [CGImage] = []
@@ -30,7 +30,7 @@ struct FilmstripTimeline: View {
                 }
                 TimeRuler(duration: duration, width: width)
                     .frame(height: 16)
-                playhead(at: x(currentTime), height: geometry.size.height)
+                Playhead(clock: clock, duration: duration, width: width, height: geometry.size.height)
                 handle(at: x(trimStart), height: geometry.size.height - 20, leading: true) { location in
                     trimStart = min(max(0, Double(location / width) * duration), trimEnd - 0.5)
                     applyTrim()
@@ -77,18 +77,6 @@ struct FilmstripTimeline: View {
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).stroke(Theme.line))
-    }
-
-    private func playhead(at x: CGFloat, height: CGFloat) -> some View {
-        ZStack(alignment: .top) {
-            Rectangle().fill(Theme.accent).frame(width: 2, height: height - 6).offset(y: 6)
-            Circle()
-                .fill(Theme.accent)
-                .frame(width: 12, height: 12)
-                .overlay(Circle().stroke(.white, lineWidth: 2))
-        }
-        .offset(x: x - 6)
-        .allowsHitTesting(false)
     }
 
     private func handle(at x: CGFloat, height: CGFloat, leading: Bool, onDrag: @escaping (CGFloat) -> Void) -> some View {
@@ -165,5 +153,26 @@ private struct TimeRuler: View {
     static func step(for duration: Double, width: CGFloat) -> Double {
         let target = duration / max(1, Double(width / 90))
         return [1, 2, 5, 10, 15, 30, 60, 120, 300, 600].first { $0 >= target } ?? 600
+    }
+}
+
+/// Halo's pill head on the timeline. Its own view, so following playback redraws only it, not the frames.
+private struct Playhead: View {
+    let clock: PlaybackClock
+    let duration: Double
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        let x = duration > 0 ? CGFloat(clock.time / duration) * width : 0
+        ZStack(alignment: .top) {
+            Rectangle().fill(Theme.accent).frame(width: 2, height: height - 6).offset(y: 6)
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 12, height: 12)
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+        }
+        .offset(x: x - 6)
+        .allowsHitTesting(false)
     }
 }

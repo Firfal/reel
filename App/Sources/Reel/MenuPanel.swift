@@ -15,11 +15,20 @@ struct MenuPanel: View {
     var onSystemWindow: () -> Void = {}
     var onHeightChange: (CGFloat) -> Void = { _ in }
 
-    private var cameras: [AVCaptureDevice] {
-        AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified).devices
+    /// Device discovery is slow: done when the panel appears and when a device comes or goes, not on every redraw.
+    @State private var cameras: [Device] = []
+    @State private var microphones: [Device] = []
+
+    struct Device: Hashable {
+        let id: String
+        let name: String
     }
-    private var microphones: [AVCaptureDevice] {
-        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified).devices
+
+    private func refreshDevices() {
+        cameras = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified)
+            .devices.map { Device(id: $0.uniqueID, name: $0.localizedName) }
+        microphones = AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone, .external], mediaType: .audio, position: .unspecified)
+            .devices.map { Device(id: $0.uniqueID, name: $0.localizedName) }
     }
 
     var body: some View {
@@ -50,7 +59,7 @@ struct MenuPanel: View {
                 Row(symbol: "video", title: "Caméra") {
                     Picker("Caméra", selection: $model.cameraID) {
                         Text("Aucune").tag(String?.none)
-                        ForEach(cameras, id: \.uniqueID) { Text($0.localizedName).tag(String?.some($0.uniqueID)) }
+                        ForEach(cameras, id: \.id) { Text($0.name).tag(String?.some($0.id)) }
                     }
                     .labelsHidden().frame(maxWidth: Self.controlWidth)
                 }
@@ -79,7 +88,7 @@ struct MenuPanel: View {
                     Picker("Micro", selection: $model.microphoneID) {
                         Text("Aucun").tag(String?.none)
                         Text("Micro par défaut").tag(String?.some(MicrophoneDevice.systemDefaultID))
-                        ForEach(microphones, id: \.uniqueID) { Text($0.localizedName).tag(String?.some($0.uniqueID)) }
+                        ForEach(microphones, id: \.id) { Text($0.name).tag(String?.some($0.id)) }
                     }
                     .labelsHidden().frame(maxWidth: Self.controlWidth)
                 }
@@ -166,6 +175,9 @@ struct MenuPanel: View {
         .focusEffectDisabled()
         .background(alignment: .top) { Theme.sidebarTint.frame(height: 140) }
         .fixedSize(horizontal: false, vertical: true)
+        .onAppear(perform: refreshDevices)
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in refreshDevices() }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in refreshDevices() }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeightChange($0) }
     }
 }
