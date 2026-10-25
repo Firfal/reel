@@ -2,7 +2,7 @@ import Foundation
 import Security
 import Synchronization
 
-/// Where the user's sharing server lives and the key that proves the app owns it, kept in the Keychain.
+/// Where the user's sharing server lives and the key that proves the app owns it, kept in `Secrets`.
 public struct CloudAccount: Sendable, Hashable {
     public var serverURL: URL
     public var ownerToken: String
@@ -22,8 +22,8 @@ public struct CloudAccount: Sendable, Hashable {
     public static func load() -> CloudAccount? {
         if let cached = cache.withLock({ $0 }) { return cached }
         var account: CloudAccount?
-        if let url = Keychain.read(service: service, account: "server-url").flatMap(URL.init(string:)),
-           let token = Keychain.read(service: service, account: "owner-token") {
+        if let url = Secrets.read(service: service, account: "server-url").flatMap(URL.init(string:)),
+           let token = Secrets.read(service: service, account: "owner-token") {
             account = CloudAccount(serverURL: url, ownerToken: token)
         }
         cache.withLock { $0 = .some(account) }
@@ -34,36 +34,9 @@ public struct CloudAccount: Sendable, Hashable {
     @concurrent public static func current() async -> CloudAccount? { load() }
 
     public func save() throws {
-        try Keychain.write(serverURL.absoluteString, service: Self.service, account: "server-url")
-        try Keychain.write(ownerToken, service: Self.service, account: "owner-token")
+        try Secrets.write(serverURL.absoluteString, service: Self.service, account: "server-url")
+        try Secrets.write(ownerToken, service: Self.service, account: "owner-token")
         Self.cache.withLock { $0 = .some(self) }
-    }
-}
-
-enum Keychain {
-    static func read(service: String, account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-        ]
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func write(_ value: String, service: String, account: String) throws {
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(base as CFDictionary)
-        var item = base
-        item[kSecValueData as String] = Data(value.utf8)
-        let status = SecItemAdd(item as CFDictionary, nil)
-        guard status == errSecSuccess else { throw CloudError.keychain(status) }
     }
 }
 

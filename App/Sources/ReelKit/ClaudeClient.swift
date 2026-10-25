@@ -24,7 +24,7 @@ public enum ClaudeKey {
     /// The saved key. The first call reads the Keychain and may block: from the main actor, use `current()`.
     public static func load() -> String? {
         if let cached = cache.withLock({ $0 }) { return cached }
-        let key = Keychain.read(service: service, account: "api-key")
+        let key = Secrets.read(service: service, account: "api-key")
         cache.withLock { $0 = .some(key) }
         return key
     }
@@ -32,7 +32,7 @@ public enum ClaudeKey {
     @concurrent public static func current() async -> String? { load() }
 
     public static func save(_ key: String) throws {
-        try Keychain.write(key, service: service, account: "api-key")
+        try Secrets.write(key, service: service, account: "api-key")
         cache.withLock { $0 = .some(key) }
     }
 }

@@ -144,9 +144,9 @@ private struct AISettings: View {
                         saved = true
                     }
                     .disabled(key.isEmpty)
-                    if saved { Text("Enregistrée dans le Trousseau").font(.caption).foregroundStyle(.secondary) }
+                    if saved { Text("Clé enregistrée").font(.caption).foregroundStyle(.secondary) }
                 }
-                Text("La transcription est envoyée à Claude pour écrire titres, résumés et documents. La clé reste dans ton Trousseau.")
+                Text("La transcription est envoyée à Claude pour écrire titres, résumés et documents. La clé reste sur ton Mac, lisible par toi seul.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
