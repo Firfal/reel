@@ -89,7 +89,7 @@ struct FilmstripTimeline: View {
             .fill(Theme.accent)
             .frame(width: 10, height: height)
             .overlay(Capsule().fill(.white.opacity(0.9)).frame(width: 2, height: 18))
-            .offset(x: leading ? x - 10 : x, y: 20)
+            .offset(x: leading ? x : x - 10, y: 20)
             .gesture(DragGesture().onChanged { value in onDrag(value.location.x + (leading ? 0 : 0)) })
             .help(leading ? "Couper le début" : "Couper la fin")
             .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
@@ -144,8 +144,11 @@ private struct TimeRuler: View {
             while t <= duration {
                 let x = CGFloat(t / duration) * size.width
                 context.fill(Path(CGRect(x: x, y: size.height - 4, width: 1, height: 4)), with: .color(.secondary))
-                let label = Text(ControlBar.format(t)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
-                context.draw(label, at: CGPoint(x: min(max(x, 14), size.width - 14), y: 5))
+                // Labels sit just right of their tick, clear of the playhead resting on it; the last one turns left at the edge.
+                let label = context.resolve(Text(ControlBar.format(t)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary))
+                let labelWidth = label.measure(in: size).width
+                let anchorRight = x + 9 + labelWidth > size.width
+                context.draw(label, at: CGPoint(x: anchorRight ? x - 9 : x + 9, y: 5), anchor: anchorRight ? .trailing : .leading)
                 t += step
             }
         }

@@ -6,19 +6,40 @@ import UniformTypeIdentifiers
 final class SettingsWindowController {
     private var window: NSWindow?
 
-    func show() {
+    /// `tab`: 0 Général, 1 Stockage, 2 IA, 3 Marque.
+    func show(tab: Int? = nil) {
         let window = window ?? makeWindow()
         self.window = window
+        if let tab, let tabs = window.contentViewController as? NSTabViewController, tabs.tabViewItems.indices.contains(tab) {
+            tabs.selectedTabViewItemIndex = tab
+        }
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
 
+    /// A native preferences window: icon tabs in the toolbar, the window titled after the selected tab.
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Réglages"
+        let tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        tabs.canPropagateSelectedChildViewControllerTitle = true
+        func add(_ title: String, _ symbol: String, _ view: some View) {
+            let controller = NSHostingController(rootView: view.frame(width: 560).fixedSize(horizontal: false, vertical: true).tint(Theme.accent))
+            controller.sizingOptions = .preferredContentSize
+            controller.title = title
+            let item = NSTabViewItem(viewController: controller)
+            item.label = title
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+            tabs.addTabViewItem(item)
+        }
+        add("Général", "gearshape", GeneralSettings())
+        add("Stockage", "externaldrive.connected.to.line.below", StorageSettings())
+        add("IA", "sparkles", AISettings())
+        add("Marque", "paintbrush", BrandSettings())
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable]
+        window.toolbarStyle = .preference
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: SettingsView().tint(Theme.accent))
         window.center()
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
             MainActor.assumeIsolated { if NSApp.windows.filter({ $0.isVisible && $0.styleMask.contains(.titled) }).count <= 1 { NSApp.setActivationPolicy(.accessory) } }
@@ -27,23 +48,16 @@ final class SettingsWindowController {
     }
 }
 
-struct SettingsView: View {
-    var body: some View {
-        TabView {
-            Tab("Général", systemImage: "gearshape") { GeneralSettings() }
-            Tab("Stockage", systemImage: "externaldrive.connected.to.line.below") { StorageSettings() }
-            Tab("IA", systemImage: "sparkles") { AISettings() }
-            Tab("Image de marque", systemImage: "paintbrush") { BrandSettings() }
-        }
-        .frame(width: 560, height: 420)
-    }
-}
-
 private struct GeneralSettings: View {
     var body: some View {
         Form {
             LabeledContent("Enregistrer ou arrêter", value: "⌥⇧R")
-            LabeledContent("Bibliothèque", value: Library.defaultRoot.path)
+            LabeledContent("Bibliothèque") {
+                Text((Library.defaultRoot.path as NSString).abbreviatingWithTildeInPath)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
             Button("Afficher dans le Finder") { NSWorkspace.shared.open(Library.defaultRoot) }
         }
         .formStyle(.grouped)
@@ -51,13 +65,16 @@ private struct GeneralSettings: View {
 }
 
 private struct StorageSettings: View {
-    @State private var account = CloudAccount.load()
+    @State private var account: CloudAccount?
+    @State private var loaded = false
     @State private var usage: ServerUsage?
     @State private var error: String?
 
     var body: some View {
         Form {
-            if let account {
+            if !loaded {
+                ProgressView().controlSize(.small)
+            } else if let account {
                 LabeledContent("Serveur de partage", value: account.serverURL.host() ?? account.serverURL.absoluteString)
                 if let usage {
                     VStack(alignment: .leading, spacing: 8) {
@@ -84,6 +101,8 @@ private struct StorageSettings: View {
         }
         .formStyle(.grouped)
         .task {
+            account = await CloudAccount.current()
+            loaded = true
             guard let account else { return }
             do { usage = try await CloudClient(account: account).usage() } catch { self.error = error.localizedDescription }
         }
@@ -97,7 +116,7 @@ private struct StorageSettings: View {
 private struct AISettings: View {
     @State private var engine = AIEngine.current
     @State private var key = ""
-    @State private var hasKey = ClaudeKey.load() != nil
+    @State private var hasKey = false
     @State private var saved = false
 
     var body: some View {
@@ -132,6 +151,7 @@ private struct AISettings: View {
             }
         }
         .formStyle(.grouped)
+        .task { hasKey = await ClaudeKey.current() != nil }
     }
 }
 
@@ -139,11 +159,14 @@ private struct BrandSettings: View {
     @State private var branding: CloudClient.Branding?
     @State private var color = Color(light: 0xE2703A, dark: 0xE2703A)
     @State private var status: String?
-    private let account = CloudAccount.load()
+    @State private var account: CloudAccount?
+    @State private var loaded = false
 
     var body: some View {
         Form {
-            if account == nil {
+            if !loaded {
+                ProgressView().controlSize(.small)
+            } else if account == nil {
                 Text("Configure d'abord un serveur de partage dans l'onglet Stockage.")
             } else if let binding = Binding($branding) {
                 TextField("Nom affiché sur la page", text: binding.companyName, prompt: Text("ex. Acme Studio"))
@@ -168,9 +191,11 @@ private struct BrandSettings: View {
         }
         .formStyle(.grouped)
         .task {
-            guard let account, let loaded = try? await CloudClient(account: account).branding() else { return }
-            branding = loaded
-            color = Color(hex: loaded.playerColor) ?? color
+            account = await CloudAccount.current()
+            loaded = true
+            guard let account, let saved = try? await CloudClient(account: account).branding() else { return }
+            branding = saved
+            color = Color(hex: saved.playerColor) ?? color
         }
     }
 

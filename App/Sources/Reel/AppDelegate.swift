@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var outsideClickMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        bubble.onMove = { [weak self] frame in self?.teleprompter.place(next: frame) }
         if let reportPath = SelfTest.reportPath {
             Task { await SelfTest.run(reportPath: reportPath) }
             return
@@ -53,7 +54,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
         registerHotKey()
         if !DemoMode.isOn {
-            if OnboardingController.isDone || CloudAccount.load() != nil { requestCameraAndMicrophone() } else { onboarding.show() }
+            Task {
+                let hasServer = await CloudAccount.current() != nil
+                if OnboardingController.isDone || hasServer { requestCameraAndMicrophone() } else { onboarding.show() }
+            }
         }
         observeModel()
         runDemoIfAsked()
@@ -68,18 +72,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch arguments[index + 1] {
             case "panel": openPanel()
             case "library": openLibrary()
-            case "settings": settings.show()
+            case "settings":
+                let tab = arguments.firstIndex(of: "--tab").flatMap { arguments.indices.contains($0 + 1) ? Int(arguments[$0 + 1]) : nil }
+                settings.show(tab: tab)
             case "onboarding": onboarding.show()
             case "editor":
-                if let video = arguments.dropFirst(index + 2).first {
+                if let video = arguments.dropFirst(index + 2).first, !video.hasPrefix("--") {
                     DemoMode.openItemID = try? await model.importVideo(from: URL(filePath: video)).id
+                } else {
+                    DemoMode.openItemID = model.library.items().first?.id
                 }
                 openLibrary()
             case "recording":
                 bubble.show(cameraID: model.cameraID, shape: bubbleSettings.shape, size: bubbleSettings.size)
                 controlBar.show(model: model, onStop: {}, onCancel: {}, onDraw: {})
+                if notes.text.isEmpty { notes.text = "Bonjour, je vous montre la nouvelle page de réglages, puis l'export." }
+                teleprompter.show(notes: notes, next: bubble.frame)
             default: break
             }
+            try? await Task.sleep(for: .seconds(2))
+            DemoMode.snapshotIfAsked()
         }
     }
 
@@ -170,7 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         onCancel: { [weak self] in Task { await self?.cancel() } },
                         onDraw: { [weak self] in self?.drawing.toggle() },
                         onBlur: { [weak self] in self?.blurBoxes.add() })
-        teleprompter.show(notes: notes, below: bubble.frame)
+        teleprompter.show(notes: notes, next: bubble.frame)
         statusItem?.button?.image = StatusIcon.recording
         await model.startRecording()
         if !model.isBusy { tearDownRecordingUI() }
@@ -294,6 +306,32 @@ enum DemoMode {
     static let isOn = CommandLine.arguments.contains("--demo")
     /// The library opens straight into this video's editor.
     static var openItemID: UUID?
+
+    /// `--snapshot <folder> [--size WxH]`: draws every visible window into PNGs, then quits. Works with the screen locked.
+    static func snapshotIfAsked() {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--snapshot"), arguments.indices.contains(index + 1) else { return }
+        let folder = URL(filePath: arguments[index + 1], directoryHint: .isDirectory)
+        if let sizeIndex = arguments.firstIndex(of: "--size"), arguments.indices.contains(sizeIndex + 1) {
+            let parts = arguments[sizeIndex + 1].split(separator: "x").compactMap { Double($0) }
+            if parts.count == 2 {
+                for window in NSApp.windows where window.isVisible && window.styleMask.contains(.titled) {
+                    window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: parts[0], height: parts[1])), display: true)
+                }
+            }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for (number, window) in NSApp.windows.filter({ $0.isVisible && $0.frame.width > 60 }).enumerated() {
+                guard let view = window.contentView?.superview ?? window.contentView,
+                      let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                try? bitmap.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent("window-\(number).png"))
+            }
+            NSApp.terminate(nil)
+        }
+    }
 }
 
 /// A borderless panel that can take keyboard focus, so its controls draw in their active colors.

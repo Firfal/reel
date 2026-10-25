@@ -104,7 +104,8 @@ struct AIPanel: View {
                     }
                 }
             }
-            .padding(.bottom, 12)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
         }
         .sheet(isPresented: Binding(get: { document != nil }, set: { if !$0 { document = nil } })) {
             if let document { DocumentSheet(kind: document.kind, text: document.text) }

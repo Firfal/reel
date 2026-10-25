@@ -93,6 +93,44 @@ struct LibraryView: View {
                 grid
             }
         }
+        .tint(Theme.accent)
+        .onAppear {
+            reload()
+            if let id = DemoMode.openItemID { selection = id }
+        }
+        .onChange(of: model.after) { reload() }
+    }
+
+    private var grid: some View {
+        Group {
+            if visible.isEmpty {
+                ContentUnavailableView {
+                    Label(emptyTitle, systemImage: search.isEmpty ? "record.circle" : "magnifyingglass")
+                } description: {
+                    Text(search.isEmpty ? "Lance un enregistrement depuis la barre de menus, ou ⌥⇧R." : "Aucun titre ne contient « \(search) ».")
+                } actions: {
+                    if search.isEmpty && section == .all {
+                        Button("Importer une vidéo…") { Task { await importVideos() } }
+                    }
+                }
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20)], spacing: 24) {
+                        ForEach(visible) { item in
+                            Button { selection = item.id } label: {
+                                VideoCard(item: item, folder: model.library.folder(for: item.id))
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu { contextMenu(for: item) }
+                        }
+                    }
+                    .padding(24)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.canvas)
+        .navigationTitle(title)
         .searchable(text: $search, placement: .toolbar, prompt: "Rechercher")
         .toolbar {
             ToolbarItem {
@@ -105,36 +143,16 @@ struct LibraryView: View {
                 .disabled(importing)
             }
         }
-        .tint(Theme.accent)
-        .onAppear {
-            reload()
-            if let id = DemoMode.openItemID { selection = id }
-        }
-        .onChange(of: model.after) { reload() }
     }
 
-    private var grid: some View {
-        ScrollView {
-            if visible.isEmpty {
-                ContentUnavailableView(
-                    "Aucune vidéo ici",
-                    systemImage: "record.circle",
-                    description: Text("Lance un enregistrement depuis la barre de menus, ou ⌥⇧R.")
-                )
-                .padding(.top, 120)
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 18)], spacing: 22) {
-                    ForEach(visible) { item in
-                        VideoCard(item: item, folder: model.library.folder(for: item.id))
-                            .onTapGesture(count: 2) { selection = item.id }
-                            .contextMenu { contextMenu(for: item) }
-                    }
-                }
-                .padding(24)
-            }
+    private var emptyTitle: String {
+        if !search.isEmpty { return "Aucun résultat" }
+        return switch section {
+        case .all: "Aucune vidéo pour l'instant"
+        case .shared: "Aucune vidéo partagée"
+        case .archived: "Rien dans les archives"
+        case .folder: "Ce dossier est vide"
         }
-        .background(Theme.canvas)
-        .navigationTitle(title)
     }
 
     private var title: String {

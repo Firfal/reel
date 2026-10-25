@@ -170,7 +170,7 @@ final class AppModel {
                 NSPasteboard.general.setString(plan, forType: .string)
             }
 
-            guard let account = CloudAccount.load() else {
+            guard let account = await CloudAccount.current() else {
                 after = .done(nil)
                 NSWorkspace.shared.activateFileViewerSelecting([videoURL])
                 return

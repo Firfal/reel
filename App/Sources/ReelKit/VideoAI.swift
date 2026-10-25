@@ -101,8 +101,8 @@ public enum VideoAI {
             if let reason = unavailableReason { throw VideoAIError.unavailable(reason) }
             let session = LanguageModelSession(instructions: """
                 You help people share screen recordings. You read a transcript and describe the video \
-                accurately, in the transcript's language. Never invent facts that are not in the transcript. \
-                Each transcript line starts with its number in brackets.
+                accurately. Write every field in \(language(of: transcript)), the language of the transcript. \
+                Never invent facts that are not in the transcript. Each transcript line starts with its number in brackets.
                 """)
             insights = try await session.respond(
                 to: "Video length: \(Int(duration)) seconds.\n\nTranscript:\n\(numbered)",
@@ -121,8 +121,16 @@ public enum VideoAI {
                 return chapter
             }
         if !insights.chapters.isEmpty { insights.chapters[0].start = 0 }
+        insights.tasks = insights.tasks.map { $0.prefix(1).uppercased() + $0.dropFirst() }
         if insights.chapters.count < 2 { insights.chapters = [] }
         return insights
+    }
+
+    /// The transcript's language named in English, for the instructions: the small on-device model follows
+    /// « write in French » far more reliably than « in the transcript's language ».
+    static func language(of transcript: Transcript) -> String {
+        let code = Locale(identifier: transcript.locale).language.languageCode?.identifier ?? "fr"
+        return Locale(identifier: "en").localizedString(forLanguageCode: code) ?? "French"
     }
 
     @concurrent
@@ -131,13 +139,13 @@ public enum VideoAI {
         if AIEngine.current == .claude {
             guard let key = ClaudeKey.load() else { throw ClaudeError.missingKey }
             return try await ClaudeClient(apiKey: key).respond(
-                system: "You turn a narrated screen recording into a written document, in the transcript's language. Use only what the speaker says. \(kind.instructions)",
+                system: "You turn a narrated screen recording into a written document, written in \(language(of: transcript)). Use only what the speaker says. \(kind.instructions)",
                 prompt: "Video title: \(title)\n\nTranscript:\n\(timestampedLines(transcript, maxWords: 60_000))"
             ).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if let reason = unavailableReason { throw VideoAIError.unavailable(reason) }
         let session = LanguageModelSession(instructions: """
-            You turn a narrated screen recording into a written document, in the transcript's language. \
+            You turn a narrated screen recording into a written document, written in \(language(of: transcript)). \
             Use only what the speaker says. \(kind.instructions)
             """)
         let response = try await session.respond(to: "Video title: \(title)\n\nTranscript:\n\(timestampedLines(transcript, maxWords: 1800))")
@@ -147,7 +155,8 @@ public enum VideoAI {
     /// Turns rough dictated thoughts into short talking points for the teleprompter, one per line.
     @concurrent
     public static func talkingPoints(from spoken: String) async throws -> String {
-        let instructions = "Turn these rough spoken notes into 3 to 7 short talking points, in the same language, one per line, each starting with « – ». Keep the speaker's ideas and order; add nothing."
+        let language = Locale(identifier: "en").localizedString(forLanguageCode: Locale.current.language.languageCode?.identifier ?? "fr") ?? "French"
+        let instructions = "Turn these rough spoken notes into 3 to 7 short talking points, written in \(language), one per line, each starting with « – ». Keep the speaker's ideas and order; add nothing."
         if AIEngine.current == .claude, let key = ClaudeKey.load() {
             return try await ClaudeClient(apiKey: key).respond(system: instructions, prompt: spoken, maxTokens: 2_000)
         }

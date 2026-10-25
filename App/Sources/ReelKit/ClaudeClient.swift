@@ -1,3 +1,4 @@
+import Synchronization
 import Foundation
 
 /// Which AI writes titles, summaries, chapters and documents. Chosen in Settings.
@@ -18,8 +19,22 @@ public enum AIEngine: String, CaseIterable, Sendable {
 public enum ClaudeKey {
     static let service = "app.reel.mac.claude"
 
-    public static func load() -> String? { Keychain.read(service: service, account: "api-key") }
-    public static func save(_ key: String) throws { try Keychain.write(key, service: service, account: "api-key") }
+    private static let cache = Mutex<String??>(nil)
+
+    /// The saved key. The first call reads the Keychain and may block: from the main actor, use `current()`.
+    public static func load() -> String? {
+        if let cached = cache.withLock({ $0 }) { return cached }
+        let key = Keychain.read(service: service, account: "api-key")
+        cache.withLock { $0 = .some(key) }
+        return key
+    }
+
+    @concurrent public static func current() async -> String? { load() }
+
+    public static func save(_ key: String) throws {
+        try Keychain.write(key, service: service, account: "api-key")
+        cache.withLock { $0 = .some(key) }
+    }
 }
 
 public enum ClaudeError: LocalizedError {

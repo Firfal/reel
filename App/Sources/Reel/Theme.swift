@@ -33,7 +33,14 @@ enum Theme {
         static let panel: CGFloat = 18
         static let control: CGFloat = 10
         static let card: CGFloat = 12
-        static let bubbleSquircle: CGFloat = 0.3  // fraction of the bubble's side
+        static let bubbleSquircle: CGFloat = 0.225  // fraction of the bubble's side, the proportion of an app icon
+    }
+
+    /// Floating panels share one inset from the screen edges (and from the Dock), so they line up with each other.
+    enum Layout {
+        static let screenMargin: CGFloat = 20
+        /// Between two floating panels, such as the bubble and the teleprompter.
+        static let panelGap: CGFloat = 12
     }
 
     enum Motion {

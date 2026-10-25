@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import Synchronization
 
 /// Where the user's sharing server lives and the key that proves the app owns it, kept in the Keychain.
 public struct CloudAccount: Sendable, Hashable {
@@ -13,17 +14,29 @@ public struct CloudAccount: Sendable, Hashable {
 
     static let service = "app.reel.mac.cloud"
 
-    /// The account saved on this Mac, if any.
+    /// Read once, then kept in memory: the Keychain can block for as long as it shows a prompt.
+    private static let cache = Mutex<CloudAccount??>(nil)
+
+    /// The account saved on this Mac, if any. The first call reads the Keychain and may block: from the main
+    /// actor, use `current()` instead.
     public static func load() -> CloudAccount? {
-        guard let url = Keychain.read(service: service, account: "server-url").flatMap(URL.init(string:)),
-              let token = Keychain.read(service: service, account: "owner-token")
-        else { return nil }
-        return CloudAccount(serverURL: url, ownerToken: token)
+        if let cached = cache.withLock({ $0 }) { return cached }
+        var account: CloudAccount?
+        if let url = Keychain.read(service: service, account: "server-url").flatMap(URL.init(string:)),
+           let token = Keychain.read(service: service, account: "owner-token") {
+            account = CloudAccount(serverURL: url, ownerToken: token)
+        }
+        cache.withLock { $0 = .some(account) }
+        return account
     }
+
+    /// The saved account, read away from the main thread.
+    @concurrent public static func current() async -> CloudAccount? { load() }
 
     public func save() throws {
         try Keychain.write(serverURL.absoluteString, service: Self.service, account: "server-url")
         try Keychain.write(ownerToken, service: Self.service, account: "owner-token")
+        Self.cache.withLock { $0 = .some(self) }
     }
 }
 

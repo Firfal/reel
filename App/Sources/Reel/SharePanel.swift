@@ -21,6 +21,7 @@ struct SharePanel: View {
                         Text("Mot de passe").tag("password")
                     }
                     .pickerStyle(.segmented)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .labelsHidden()
                     if details.privacy == "password" {
                         SecureField("Mot de passe pour les spectateurs", text: $details.password)
@@ -82,7 +83,8 @@ struct SharePanel: View {
                     }
                 }
             }
-            .padding(.bottom, 12)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
         }
         .task(id: item.shareURL) { await loadInsights() }
     }
@@ -96,7 +98,7 @@ struct SharePanel: View {
     }
 
     private func loadInsights() async {
-        guard let id = item.shareURL?.lastPathComponent, let account = CloudAccount.load() else { return }
+        guard let id = item.shareURL?.lastPathComponent, let account = await CloudAccount.current() else { return }
         insights = try? await CloudClient(account: account).insights(videoID: id)
     }
 

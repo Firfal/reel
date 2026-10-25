@@ -20,17 +20,34 @@ final class SpeakerNotes {
 final class TeleprompterController {
     private var panel: NSPanel?
 
-    func show(notes: SpeakerNotes, below anchor: NSRect?) {
+    func show(notes: SpeakerNotes, next anchor: NSRect?) {
         guard !notes.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let panel = panel ?? makePanel()
         self.panel = panel
         panel.contentView = NSHostingView(rootView: TeleprompterView(notes: notes))
-        let size = NSSize(width: 360, height: 110)
-        let screen = NSScreen.main?.visibleFrame ?? .zero
-        let origin = anchor.map { NSPoint(x: $0.midX - size.width / 2, y: $0.minY - size.height - 10) }
-            ?? NSPoint(x: screen.midX - size.width / 2, y: screen.maxY - size.height - 40)
-        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        place(next: anchor)
         panel.orderFrontRegardless()
+    }
+
+    /// Next to the camera bubble, so the eyes stay near the lens: on the screen side of it, flush with its outer
+    /// edge. Without a bubble, centered at the top of the screen.
+    func place(next anchor: NSRect?) {
+        guard let panel else { return }
+        let screen = NSScreen.main?.visibleFrame ?? .zero
+        let margin = Theme.Layout.screenMargin, gap = Theme.Layout.panelGap
+        let size = NSSize(width: 360, height: 110)
+        let origin: NSPoint
+        if let anchor {
+            let onLeft = anchor.midX < screen.midX
+            let onBottom = anchor.midY < screen.midY
+            origin = NSPoint(
+                x: onLeft ? anchor.minX : anchor.maxX - size.width,
+                y: onBottom ? anchor.maxY + gap : anchor.minY - gap - size.height
+            )
+        } else {
+            origin = NSPoint(x: screen.midX - size.width / 2, y: screen.maxY - margin - size.height)
+        }
+        panel.setFrame(NSRect(origin: origin, size: size), display: true, animate: panel.isVisible)
     }
 
     func hide() { panel?.orderOut(nil) }
@@ -79,7 +96,7 @@ struct NotesEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Notes pour le téléprompteur").font(.callout)
+                Text("Écris ou dicte : l'IA en fait des points courts.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(dictation.isListening ? "Arrêter" : "Dicter") {
                     Task {

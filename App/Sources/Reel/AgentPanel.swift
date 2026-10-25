@@ -11,7 +11,8 @@ struct AgentPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Plan pour un agent").font(Theme.title(15))
+            Text("Les clics et ta voix, fusionnés en un plan qu'un agent peut suivre.")
+                .font(.caption).foregroundStyle(.secondary)
             ScrollView {
                 Text(plan)
                     .font(.system(size: 12, design: .monospaced))
@@ -34,6 +35,8 @@ struct AgentPanel: View {
             }
             .controlSize(.small)
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 14)
         .onAppear { plan = (try? String(contentsOf: planURL, encoding: .utf8)) ?? "" }
     }
 

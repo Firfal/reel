@@ -20,7 +20,7 @@ struct MenuPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Nouvel enregistrement").font(Theme.title(15))
                 Spacer()
@@ -42,13 +42,14 @@ struct MenuPanel: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            Group {
+            // One grid for every row: icon, label, then the control flush right.
+            VStack(spacing: Self.rowSpacing) {
                 Row(symbol: "video", title: "Caméra") {
                     Picker("Caméra", selection: $model.cameraID) {
                         Text("Aucune").tag(String?.none)
                         ForEach(cameras, id: \.uniqueID) { Text($0.localizedName).tag(String?.some($0.uniqueID)) }
                     }
-                    .labelsHidden().frame(maxWidth: 190)
+                    .labelsHidden().frame(maxWidth: Self.controlWidth)
                 }
                 if model.cameraID != nil {
                     Row(symbol: "square.on.circle", title: "Bulle") {
@@ -62,41 +63,51 @@ struct MenuPanel: View {
                         .pickerStyle(.segmented).labelsHidden().fixedSize()
                     }
                     Row(symbol: "wand.and.stars", title: "Effets") {
-                        Button("Flou, arrière-plan, lumière…") { AVCaptureDevice.showSystemUserInterface(.videoEffects) }
-                            .controlSize(.small)
+                        Button("Réglages vidéo…") { AVCaptureDevice.showSystemUserInterface(.videoEffects) }
+                            .help("Flou d'arrière-plan, arrière-plans, éclairage studio : les effets vidéo de macOS")
                     }
                 }
+            }
+            VStack(spacing: Self.rowSpacing) {
                 Row(symbol: "mic", title: "Micro") {
                     Picker("Micro", selection: $model.microphoneID) {
                         Text("Aucun").tag(String?.none)
                         Text("Micro par défaut").tag(String?.some(MicrophoneDevice.systemDefaultID))
                         ForEach(microphones, id: \.uniqueID) { Text($0.localizedName).tag(String?.some($0.uniqueID)) }
                     }
-                    .labelsHidden().frame(maxWidth: 190)
+                    .labelsHidden().frame(maxWidth: Self.controlWidth)
                 }
                 if model.microphoneID != nil {
                     Row(symbol: "waveform.and.mic", title: "Bruit de fond") {
                         Button("Isolation de la voix…") { AVCaptureDevice.showSystemUserInterface(.microphoneModes) }
-                            .controlSize(.small)
                             .help("Ouvre les modes micro de macOS : « Isolation de la voix » retire le bruit de fond.")
                     }
                 }
+                ToggleRow(symbol: "speaker.wave.2", title: "Son du système", isOn: $model.capturesSystemAudio)
             }
-
-            VStack(spacing: 0) {
-                ToggleRow(title: "Son du système", isOn: $model.capturesSystemAudio)
-                ToggleRow(title: "Masquer les notifications", isOn: $model.doNotDisturb)
-                ToggleRow(title: "Masquer les icônes du bureau", isOn: $model.hidesDesktop)
-                ToggleRow(title: "Montrer les clics", isOn: $model.highlightsClicks)
-                ToggleRow(title: "Pour un agent : capter clics et adresses", isOn: $model.agentMode)
+            VStack(spacing: Self.rowSpacing) {
+                ToggleRow(symbol: "bell.slash", title: "Masquer les notifications", isOn: $model.doNotDisturb)
+                ToggleRow(symbol: "menubar.dock.rectangle", title: "Masquer les icônes du bureau", isOn: $model.hidesDesktop)
+                ToggleRow(symbol: "cursorarrow.click", title: "Montrer les clics", isOn: $model.highlightsClicks)
+                ToggleRow(symbol: "cursorarrow.rays", title: "Pour un agent", isOn: $model.agentMode)
+                    .help("Capte chaque clic, la fenêtre et l'adresse de la page, pour en faire un plan qu'un agent peut suivre")
+                Row(symbol: "text.alignleft", title: "Téléprompteur") {
+                    Button {
+                        withAnimation(Theme.Motion.standard) { showsNotes.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(notes.text.isEmpty ? "Ajouter" : "Modifier")
+                            Image(systemName: "chevron.down").rotationEffect(.degrees(showsNotes ? 180 : 0)).font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if showsNotes {
+                    NotesEditor(notes: notes)
+                        .transition(.opacity)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .background(Theme.inset.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.control))
-
-            DisclosureGroup("Téléprompteur", isExpanded: $showsNotes) {
-                NotesEditor(notes: notes).padding(.top, 6)
-            }
-            .font(.callout)
 
             Button(action: onRecord) {
                 HStack {
@@ -133,19 +144,38 @@ struct MenuPanel: View {
             }
 
             Divider()
-            HStack {
-                Button("Ouvrir la bibliothèque", action: onOpenLibrary).buttonStyle(.link)
+            HStack(spacing: 14) {
+                FooterButton(title: "Bibliothèque", action: onOpenLibrary).foregroundStyle(Theme.accentInk)
                 Spacer()
-                Button("Réglages", action: onOpenSettings).buttonStyle(.link).foregroundStyle(.secondary)
-                Button("Quitter") { NSApp.terminate(nil) }.buttonStyle(.link).foregroundStyle(.secondary)
+                FooterButton(title: "Réglages", action: onOpenSettings).keyboardShortcut(",", modifiers: .command)
+                FooterButton(title: "Quitter") { NSApp.terminate(nil) }.keyboardShortcut("q", modifiers: .command)
             }
-            .font(.callout)
         }
         .padding(16)
         .frame(width: 340)
         .tint(Theme.accentInk)
         .focusEffectDisabled()
         .background(alignment: .top) { Theme.sidebarTint.frame(height: 140) }
+    }
+}
+
+extension MenuPanel {
+    static let rowSpacing: CGFloat = 10
+    static let controlWidth: CGFloat = 170
+}
+
+private struct FooterButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .opacity(hovering ? 0.7 : 1)
+            .onHover { hovering = $0 }
     }
 }
 
@@ -161,31 +191,32 @@ private struct Row<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol).frame(width: 18).foregroundStyle(.secondary)
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
             Text(title).fixedSize()
             Spacer(minLength: 8)
             content
+                .controlSize(.small)
         }
         .font(.callout)
+        .frame(minHeight: 24)
     }
 }
 
 private struct ToggleRow: View {
+    let symbol: String
     let title: String
     @Binding var isOn: Bool
     var body: some View {
-        HStack {
-            Text(title).font(.callout)
-            Spacer()
+        Row(symbol: symbol, title: title) {
             Toggle(title, isOn: $isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .tint(Theme.accent)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
     }
 }
 

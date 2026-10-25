@@ -15,13 +15,20 @@ struct StylingPanel: View {
                         Text("Classique").tag(CaptionStyle.classic)
                         Text("Clair").tag(CaptionStyle.light)
                     }
-                    .pickerStyle(.segmented).labelsHidden()
+                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
                     Text("La page de partage propose aussi ses propres sous-titres, activables par le spectateur.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 section("Son") {
-                    Toggle("Amélioration auto : voix au bon niveau", isOn: $styling.enhancesAudio)
-                        .toggleStyle(.switch).controlSize(.small).tint(Theme.accent)
+                    HStack {
+                        Text("Voix au bon niveau")
+                        Spacer()
+                        Toggle("Voix au bon niveau", isOn: $styling.enhancesAudio)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                            .tint(Theme.accent)
+                    }
                     Text("Monte une voix trop faible et calme une voix trop forte, sans saturer.").font(.caption).foregroundStyle(.secondary)
                 }
                 section("Arrière-plan") {
@@ -30,12 +37,12 @@ struct StylingPanel: View {
                         Text("Dégradé").tag(Backdrop.gradient)
                         Text("Graphite").tag(Backdrop.graphite)
                     }
-                    .pickerStyle(.segmented).labelsHidden()
+                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
                     Text("L'écran est posé sur un fond, avec des coins arrondis et une ombre.").font(.caption).foregroundStyle(.secondary)
                 }
                 section("Annotations") {
                     if styling.overlays.isEmpty {
-                        Text("Ajoute un texte, une flèche ou un cadre avec les boutons au-dessus de la vidéo.").font(.callout).foregroundStyle(.tertiary)
+                        Text("Ajoute un texte, une flèche ou un cadre depuis la barre d'outils, puis place-le sur la vidéo.").font(.callout).foregroundStyle(.tertiary)
                     }
                     ForEach($styling.overlays) { $overlay in
                         HStack(spacing: 8) {
@@ -57,6 +64,8 @@ struct StylingPanel: View {
                     Text("L'habillage est incrusté à l'export : le partage prend un peu plus de temps.").font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
         }
     }
 

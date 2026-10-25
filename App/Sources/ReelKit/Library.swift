@@ -52,8 +52,10 @@ public struct Library: Sendable {
         self.root = root
     }
 
+    /// `REEL_LIBRARY` points the app at another folder, for testing without touching the real library.
     public static var defaultRoot: URL {
-        FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appendingPathComponent("Reel", isDirectory: true)
+        if let path = ProcessInfo.processInfo.environment["REEL_LIBRARY"] { return URL(filePath: path, directoryHint: .isDirectory) }
+        return FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appendingPathComponent("Reel", isDirectory: true)
     }
 
     public func folder(for id: UUID) -> URL { root.appendingPathComponent(id.uuidString, isDirectory: true) }

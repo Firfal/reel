@@ -12,7 +12,8 @@ final class ControlBarController {
         panel.contentView = NSHostingView(rootView: ControlBar(model: model, onStop: onStop, onCancel: onCancel, onDraw: onDraw, onBlur: onBlur))
         panel.setContentSize(panel.contentView!.fittingSize)
         if let screen = NSScreen.main?.visibleFrame {
-            panel.setFrameOrigin(NSPoint(x: screen.midX - panel.frame.width / 2, y: screen.minY + 28))
+            // The bar's capsule sits on the same line as the camera bubble; the view's outer padding leaves room for the shadow.
+            panel.setFrameOrigin(NSPoint(x: screen.midX - panel.frame.width / 2, y: screen.minY + Theme.Layout.screenMargin - ControlBar.shadowRoom))
         }
         panel.orderFrontRegardless()
     }
@@ -41,30 +42,36 @@ struct ControlBar: View {
     let onDraw: () -> Void
     var onBlur: () -> Void = {}
 
+    static let shadowRoom: CGFloat = 10
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 2) {
             if let countdown = model.countdown {
                 Text("\(countdown)")
                     .font(Theme.title(17))
                     .monospacedDigit()
-                    .frame(width: 120)
+                    .frame(width: 128)
                     .contentTransition(.numericText(countsDown: true))
             } else {
                 TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
+                        // The status dot takes a button's slot, so the bar's ends mirror each other.
                         Circle()
                             .fill(model.recorderState == .recording ? Theme.accent : Color.secondary)
                             .frame(width: 8, height: 8)
+                            .frame(width: 30, height: 30)
+                            .padding(.trailing, -6)
                         Text(Self.format(model.recordedDuration))
                             .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                            .frame(minWidth: 34, alignment: .leading)
                         // The signature: a slim pill with a round playhead, here filling one turn per minute.
                         PlayheadPill(progress: model.recordedDuration.truncatingRemainder(dividingBy: 60) / 60)
-                            .frame(width: 56)
+                            .frame(width: 48)
                     }
-                    .padding(.leading, 6)
+                    .padding(.trailing, 6)
                 }
             }
-            Divider().frame(height: 18)
+            Divider().frame(height: 18).padding(.horizontal, 4)
             BarButton(symbol: model.recorderState == .paused ? "play.fill" : "pause.fill",
                       help: model.recorderState == .paused ? "Reprendre" : "Pause") { Task { await model.togglePause() } }
             BarButton(symbol: "gobackward.5", help: "Revenir 5 s en arrière") { Task { await model.rewind() } }
@@ -84,7 +91,7 @@ struct ControlBar: View {
         }
         .padding(6)
         .glassEffect(.regular, in: .capsule)
-        .padding(10)
+        .padding(Self.shadowRoom)
         .animation(Theme.Motion.standard, value: model.countdown)
     }
 
@@ -101,15 +108,17 @@ struct PlayheadPill: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let x = geometry.size.width * min(max(progress, 0), 1)
+            // The playhead travels between the track's ends, never past them.
+            let knob = height * 2.5
+            let x = knob / 2 + (geometry.size.width - knob) * min(max(progress, 0), 1)
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.accent.opacity(0.18))
                 Capsule().fill(Theme.accent).frame(width: x)
                 Circle()
                     .fill(Theme.accent)
-                    .frame(width: height * 2.5, height: height * 2.5)
+                    .frame(width: knob, height: knob)
                     .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 1.5))
-                    .offset(x: x - height * 1.25)
+                    .offset(x: x - knob / 2)
             }
             .frame(height: height)
             .frame(maxHeight: .infinity)

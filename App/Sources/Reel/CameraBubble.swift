@@ -47,6 +47,9 @@ final class CameraBubbleController {
     private(set) var size: BubbleSize = .medium
     private var cameraID: String?
 
+    /// Called with the bubble's new frame once it has settled after a move or a change of shape.
+    var onMove: ((NSRect) -> Void)?
+
     var isVisible: Bool { panel?.isVisible ?? false }
     var frame: NSRect? { panel?.isVisible == true ? panel?.frame : nil }
 
@@ -115,9 +118,9 @@ final class CameraBubbleController {
         preview.connection?.isVideoMirrored = true
         view.layer?.addSublayer(preview)
         view.layer?.masksToBounds = true
-        // A fine bright rim, like light catching the edge of a glass.
-        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.55).cgColor
-        view.layer?.borderWidth = 1.5
+        // A hairline rim, like light catching the edge of a glass; enough to separate the bubble from a dark desktop.
+        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
+        view.layer?.borderWidth = 1
         previewLayer = preview
         panel.contentView = view
         return panel
@@ -141,11 +144,12 @@ final class CameraBubbleController {
         view.layer?.cornerRadius = radius
         view.layer?.cornerCurve = .continuous
         panel.invalidateShadow()
+        if panel.isVisible { snapToNearestCorner(panel) }
     }
 
     // MARK: Placement
 
-    private static let margin: CGFloat = 24
+    private static let margin = Theme.Layout.screenMargin
 
     private func corners(for panel: NSWindow) -> [NSPoint] {
         guard let visible = (panel.screen ?? NSScreen.main)?.visibleFrame else { return [] }
@@ -162,6 +166,15 @@ final class CameraBubbleController {
     private func placeInCorner(_ panel: NSWindow, animated: Bool) {
         guard let corner = corners(for: panel).first else { return }
         panel.setFrameOrigin(corner)
+        onMove?(panel.frame)
+    }
+
+    /// After a change of size the bubble keeps its corner, at the same margin.
+    private func snapToNearestCorner(_ panel: NSWindow) {
+        let origin = panel.frame.origin
+        guard let target = corners(for: panel).min(by: { hypot($0.x - origin.x, $0.y - origin.y) < hypot($1.x - origin.x, $1.y - origin.y) }) else { return }
+        panel.setFrameOrigin(target)
+        onMove?(panel.frame)
     }
 
     /// Projects the release velocity forward (scroll-like deceleration) and snaps to the corner nearest that point.
@@ -174,6 +187,8 @@ final class CameraBubbleController {
             context.duration = 0.35
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
             panel.animator().setFrameOrigin(target)
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.onMove?(NSRect(origin: target, size: panel.frame.size)) }
         }
     }
 }

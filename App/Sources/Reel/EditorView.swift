@@ -22,9 +22,28 @@ struct EditorView: View {
     @State private var details = SharedDetails()
     @State private var styling = Styling()
     @State private var videoAspect: CGFloat = 16 / 9
-    @State private var tab = CommandLine.arguments.contains("--tab-ai") ? InspectorTab.ai : CommandLine.arguments.contains("--tab-agent") ? .agent : .transcript
+    @State private var tab = InspectorTab.demo ?? .transcript
 
-    enum InspectorTab: String, CaseIterable { case transcript = "Transcription", ai = "IA", styling = "Habillage", share = "Partage", agent = "Agent" }
+    enum InspectorTab: String, CaseIterable {
+        case transcript = "Transcription", ai = "IA", styling = "Habillage", share = "Partage", agent = "Agent"
+
+        var symbol: String {
+            switch self {
+            case .transcript: "text.quote"
+            case .ai: "sparkles"
+            case .styling: "paintbrush"
+            case .share: "link"
+            case .agent: "cursorarrow.rays"
+            }
+        }
+
+        /// `--tab ai|styling|share|agent`, for screenshots during development.
+        static var demo: InspectorTab? {
+            let arguments = CommandLine.arguments
+            guard let index = arguments.firstIndex(of: "--tab"), arguments.indices.contains(index + 1) else { return nil }
+            return ["transcript": .transcript, "ai": .ai, "styling": .styling, "share": .share, "agent": .agent][arguments[index + 1]]
+        }
+    }
 
     private var agentFolder: URL { folder.appendingPathComponent("agent") }
     private var hasAgentPlan: Bool { FileManager.default.fileExists(atPath: agentFolder.appendingPathComponent("plan.md").path) }
@@ -34,31 +53,39 @@ struct EditorView: View {
     private var detailsURL: URL { folder.appendingPathComponent("insights.json") }
     private var stylingURL: URL { folder.appendingPathComponent("styling.json") }
 
+    @State private var showsInspector = true
+    @FocusState private var titleFocused: Bool
+
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                header
-                PlayerView(player: player)
-                    .overlay { OverlayCanvas(styling: $styling, currentTime: currentTime, videoAspect: videoAspect).padding(.bottom, 40) }
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-                    .padding(.horizontal, 20)
-                    .frame(minHeight: 320)
-                FilmstripTimeline(
-                    videoURL: library.videoURL(for: item.id),
-                    duration: item.duration,
-                    edit: $edit,
-                    currentTime: currentTime,
-                    onSeek: seek
-                )
-                .frame(height: 96)
-                .padding(20)
-            }
-            .frame(minWidth: 560)
-            inspector
-                .frame(minWidth: 280, idealWidth: 320, maxWidth: 380)
+        VStack(spacing: 0) {
+            header
+            PlayerView(player: player)
+                .overlay { OverlayCanvas(styling: $styling, currentTime: currentTime, videoAspect: videoAspect).padding(.bottom, 40) }
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                .frame(minHeight: 240)
+                .padding(.horizontal, Self.gutter)
+            FilmstripTimeline(
+                videoURL: library.videoURL(for: item.id),
+                duration: item.duration,
+                edit: $edit,
+                currentTime: currentTime,
+                onSeek: seek
+            )
+            .frame(height: 92)
+            .padding(.horizontal, Self.gutter)
+            .padding(.vertical, 18)
         }
+        .frame(minWidth: 480)
         .background(Theme.canvas)
+        .navigationTitle("")
+        .toolbar { toolbar }
+        .inspector(isPresented: $showsInspector) {
+            inspector
+                .inspectorColumnWidth(min: 300, ideal: 340, max: 440)
+        }
         .onAppear(perform: load)
+        // macOS focuses the first text field of a new window; the title stays quiet until clicked.
+        .task { titleFocused = false }
         .onDisappear(perform: unload)
         .onChange(of: edit) { save() }
         .onChange(of: details) { try? JSONEncoder().encode(details).write(to: detailsURL) }
@@ -66,42 +93,88 @@ struct EditorView: View {
         .task { levels = try? await AudioLevels.measure(library.videoURL(for: item.id)) }
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Button(action: onClose) { Image(systemName: "chevron.left") }
-                .buttonStyle(.borderless)
+    /// Player, timeline and title share one edge.
+    private static let gutter: CGFloat = 20
+
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button(action: onClose) { Label("Bibliothèque", systemImage: "chevron.left") }
                 .help("Retour à la bibliothèque")
-            TextField("Titre", text: $title)
-                .textFieldStyle(.plain)
-                .font(Theme.title(17))
-                .onSubmit(saveTitle)
-            Spacer()
+                .keyboardShortcut("[", modifiers: .command)
+        }
+        ToolbarItem {
             ControlGroup {
                 ForEach(Overlay.Kind.allCases, id: \.self) { kind in
-                    Button { addOverlay(kind) } label: { Image(systemName: StylingPanel.symbol(kind)) }
-                        .help(kind == .text ? "Ajouter un texte" : kind == .arrow ? "Ajouter une flèche" : "Ajouter un cadre")
+                    Button { addOverlay(kind) } label: { Label(Self.overlayName(kind), systemImage: StylingPanel.symbol(kind)) }
+                        .help("Ajouter \(Self.overlayName(kind).lowercased())")
                 }
-            }
-            .fixedSize()
-            Button {
-                Task { await setThumbnail() }
             } label: {
-                Label("Miniature", systemImage: "photo")
+                Label("Annoter", systemImage: "textformat")
             }
-            .help("Utiliser l'image affichée comme miniature")
-            Text("\(ControlBar.format(edit.editedDuration(duration: item.duration))) après montage")
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Button(action: { Task { await share() } }) {
+        }
+        ToolbarItem {
+            Button { Task { await setThumbnail() } } label: { Label("Miniature", systemImage: "photo") }
+                .help("Utiliser l'image affichée comme miniature")
+        }
+        ToolbarItem {
+            Button { Task { await share() } } label: {
                 Label(item.shareURL == nil ? "Partager" : "Mettre à jour le lien", systemImage: "square.and.arrow.up")
-                    .padding(.horizontal, 4)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
+            .help(item.shareURL == nil ? "Envoyer la vidéo et copier son lien" : "Renvoyer la vidéo montée, au même endroit")
             .disabled(isSharing)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        ToolbarItem {
+            Button { showsInspector.toggle() } label: { Label("Inspecteur", systemImage: "sidebar.right") }
+                .help(showsInspector ? "Masquer l'inspecteur" : "Afficher l'inspecteur")
+                .keyboardShortcut("i", modifiers: [.command, .option])
+        }
+    }
+
+    private static func overlayName(_ kind: Overlay.Kind) -> String {
+        switch kind {
+        case .text: "Un texte"
+        case .arrow: "Une flèche"
+        case .box: "Un cadre"
+        }
+    }
+
+    /// The title, editable in place, and what the edit does to the length; sharing progress takes its place.
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            TextField("Titre", text: $title)
+                .textFieldStyle(.plain)
+                .font(Theme.title(20))
+                .focused($titleFocused)
+                .onSubmit(saveTitle)
+                .onChange(of: titleFocused) { if !titleFocused { saveTitle() } }
+            Spacer(minLength: 12)
+            if sharing == .idle {
+                lengthSummary
+            } else {
+                shareStatus
+            }
+        }
+        .padding(.horizontal, Self.gutter)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder private var lengthSummary: some View {
+        let edited = edit.editedDuration(duration: item.duration)
+        HStack(spacing: 8) {
+            if edit.cuts.isEmpty {
+                Text(ControlBar.format(item.duration))
+            } else {
+                Text("\(ControlBar.format(edited)) après montage")
+                Text("·")
+                Button("Tout remettre") { edit = Edit() }
+                    .buttonStyle(.link)
+                    .help("Annuler toutes les coupes")
+            }
+        }
+        .font(.callout.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .fixedSize()
     }
 
     private var isSharing: Bool {
@@ -114,28 +187,47 @@ struct EditorView: View {
     // MARK: Inspector
 
     private var inspector: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             Picker("Panneau", selection: $tab) {
-                ForEach(InspectorTab.allCases.filter { $0 != .agent || hasAgentPlan }, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(InspectorTab.allCases.filter { $0 != .agent || hasAgentPlan }, id: \.self) { tab in
+                    Image(systemName: tab.symbol).accessibilityLabel(tab.rawValue).tag(tab)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            if tab == .styling {
-                StylingPanel(styling: $styling, onSeek: seek)
-            } else if tab == .share {
-                SharePanel(item: item, currentTime: currentTime, details: $details)
-            } else if tab == .agent {
-                AgentPanel(folder: agentFolder)
-            } else if tab == .ai {
-                AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek)
-            } else if let transcript {
-                let hesitations = levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript)
-                let silences = levels?.silences(duration: item.duration) ?? Cleanup.silences(in: transcript, duration: item.duration)
-                HStack {
-                    Button("Supprimer les hésitations (\(hesitations.count))") { edit.cuts += hesitations }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            Text(tab.rawValue)
+                .font(Theme.title(15))
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
+            Group {
+                switch tab {
+                case .styling: StylingPanel(styling: $styling, onSeek: seek)
+                case .share: SharePanel(item: item, currentTime: currentTime, details: $details)
+                case .agent: AgentPanel(folder: agentFolder)
+                case .ai: AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek)
+                case .transcript: transcriptPanel
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(Theme.canvas)
+    }
+
+    @ViewBuilder private var transcriptPanel: some View {
+        if let transcript {
+            let hesitations = levels.map { Cleanup.hesitations(in: transcript, levels: $0) } ?? Cleanup.hesitations(in: transcript)
+            let silences = levels?.silences(duration: item.duration) ?? Cleanup.silences(in: transcript, duration: item.duration)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    Button("Hésitations (\(hesitations.count))") { edit.cuts += hesitations }
                         .disabled(hesitations.isEmpty)
-                    Button("Les silences (\(silences.count))") { edit.cuts += silences }
+                        .help("Couper les « euh » et les reprises")
+                    Button("Silences (\(silences.count))") { edit.cuts += silences }
                         .disabled(silences.isEmpty)
+                        .help("Couper les blancs de plus d'une seconde")
                 }
                 .controlSize(.small)
                 ScrollView {
@@ -152,39 +244,32 @@ struct EditorView: View {
                 Text("Clique sur un mot pour le couper, clique à nouveau pour le remettre.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else {
-                ContentUnavailableView("Pas de transcription", systemImage: "text.bubble",
-                                       description: Text("La vidéo n'a pas de voix, ou la langue n'est pas prise en charge."))
             }
-            Spacer(minLength: 0)
-            shareStatus
-            if !edit.cuts.isEmpty {
-                Button("Tout remettre", role: .destructive) { edit = Edit() }
-                    .buttonStyle(.link)
-                    .font(.callout)
-            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 14)
+        } else {
+            ContentUnavailableView("Pas de transcription", systemImage: "text.bubble",
+                                   description: Text("La vidéo n'a pas de voix, ou la langue n'est pas prise en charge."))
         }
-        .padding(18)
-        .background(Theme.inset.opacity(0.5))
     }
 
     @ViewBuilder private var shareStatus: some View {
         switch sharing {
         case .assembling:
-            Label("Préparation de la vidéo…", systemImage: "hourglass").font(.callout)
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Préparation de la vidéo…") }
+                .font(.callout).foregroundStyle(.secondary)
         case .uploading(let value):
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Envoi vers ton Cloudflare · \(Int(value * 100)) %").font(.callout).foregroundStyle(.secondary)
-                PlayheadPill(progress: value)
+            HStack(spacing: 10) {
+                Text("Envoi · \(Int(value * 100)) %").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                PlayheadPill(progress: value).frame(width: 120)
             }
         case .done(let url?):
-            HStack {
-                Label("Lien copié", systemImage: "link").font(.callout.weight(.medium))
-                Spacer()
+            HStack(spacing: 10) {
+                Label("Lien copié", systemImage: "checkmark.circle.fill").font(.callout.weight(.medium)).foregroundStyle(Theme.accentInk)
                 Link("Ouvrir", destination: url).font(.callout)
             }
         case .failed(let message):
-            Label(message, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.red)
+            Label(message, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.red).lineLimit(2)
         default:
             EmptyView()
         }
@@ -278,7 +363,7 @@ struct EditorView: View {
     // MARK: Sharing
 
     private func share() async {
-        guard let account = CloudAccount.load() else {
+        guard let account = await CloudAccount.current() else {
             sharing = .failed("Aucun serveur de partage configuré. Ouvre Réglages › Stockage.")
             return
         }

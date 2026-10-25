@@ -122,7 +122,7 @@ struct SharingStep: View {
     @State private var token = ""
     @State private var current: CloudSetup.Step?
     @State private var error: String?
-    @State private var installed = CloudAccount.load()?.serverURL
+    @State private var installed: URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -161,6 +161,7 @@ struct SharingStep: View {
                 }
             }
         }
+        .task { installed = await CloudAccount.current()?.serverURL }
     }
 
     private func install() async {
@@ -187,6 +188,7 @@ private struct AIStep: View {
     let onFinish: () -> Void
     @State private var engine = AIEngine.current
     @State private var key = ""
+    @State private var hasKey = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -200,7 +202,7 @@ private struct AIStep: View {
                 Text(reason).font(.callout).foregroundStyle(.orange)
             }
             if engine == .claude {
-                SecureField(ClaudeKey.load() == nil ? "sk-ant-…" : "Clé enregistrée", text: $key)
+                SecureField(hasKey ? "Clé enregistrée" : "sk-ant-…", text: $key)
                 Text("La transcription est envoyée à Claude pour écrire titres, résumés et documents.").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -215,5 +217,6 @@ private struct AIStep: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
+        .task { hasKey = await ClaudeKey.current() != nil }
     }
 }
