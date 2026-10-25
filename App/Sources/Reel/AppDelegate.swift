@@ -24,7 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var outsideClickMonitor: Any?
     /// True while a macOS window opened from the panel (video effects, mic modes) is on screen:
     /// clicks there must not close the panel, or the camera stops and macOS closes its window too.
-    private var panelHeldOpen = false
+    private var panelHeldOpen = false {
+        // Above everything as a menu, but under the macOS window while it is shown.
+        didSet { panel?.level = panelHeldOpen ? .normal : .popUpMenu }
+    }
     private var isSelectingRegion = false
     private var panelIdealSize: () -> NSSize = { NSSize(width: 340, height: 480) }
 
