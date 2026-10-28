@@ -27,6 +27,7 @@ struct EditorView: View {
     @State private var videoAspect: CGFloat = 16 / 9
     @State private var tab = InspectorTab.demo ?? .transcript
     @State private var aiWorking = false
+    @State private var selectedOverlay: Overlay.ID?
 
     enum InspectorTab: String, CaseIterable {
         case transcript = "Transcription", ai = "IA", styling = "Habillage", share = "Partage", agent = "Agent"
@@ -64,7 +65,7 @@ struct EditorView: View {
         VStack(spacing: 0) {
             header
             PlayerView(player: player)
-                .overlay { OverlayCanvas(styling: $styling, clock: clock, videoAspect: videoAspect) }
+                .overlay { OverlayCanvas(styling: $styling, selection: $selectedOverlay, clock: clock, videoAspect: videoAspect) }
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
                 .frame(minHeight: 240)
                 .padding(.horizontal, Self.gutter)
@@ -97,6 +98,7 @@ struct EditorView: View {
         }
         .onChange(of: details) { try? JSONEncoder().encode(details).write(to: detailsURL) }
         .onChange(of: styling) { try? JSONEncoder().encode(styling).write(to: stylingURL) }
+        .onChange(of: selectedOverlay) { _, id in if id != nil { tab = .styling } }
         .task {
             levels = try? await AudioLevels.measure(library.videoURL(for: item.id))
             computeSuggestions()
@@ -217,7 +219,7 @@ struct EditorView: View {
                 .padding(.bottom, Theme.Spacing.row)
             Group {
                 switch tab {
-                case .styling: StylingPanel(styling: $styling, duration: item.duration, onSeek: seek)
+                case .styling: StylingPanel(styling: $styling, selection: $selectedOverlay, duration: item.duration, clock: clock, onSeek: seek)
                 case .share: SharePanel(item: item, clock: clock, details: $details)
                 case .agent: AgentPanel(folder: agentFolder)
                 case .ai: AIPanel(transcript: transcript, duration: item.duration, title: $title, details: $details, onSeek: seek, working: $aiWorking)
@@ -309,6 +311,7 @@ struct EditorView: View {
         if let data = try? Data(contentsOf: editURL), let saved = try? JSONDecoder().decode(Edit.self, from: data) { edit = saved }
         if let data = try? Data(contentsOf: detailsURL), let saved = try? JSONDecoder().decode(SharedDetails.self, from: data) { details = saved }
         if let data = try? Data(contentsOf: stylingURL), let saved = try? JSONDecoder().decode(Styling.self, from: data) { styling = saved }
+        if CommandLine.arguments.contains("--select-overlay") { selectedOverlay = styling.overlays.first?.id }  // screenshots
         Task {
             if let track = try? await AVURLAsset(url: library.videoURL(for: item.id)).loadTracks(withMediaType: .video).first,
                let size = try? await track.load(.naturalSize), size.height > 0 {
@@ -363,7 +366,9 @@ struct EditorView: View {
         case .arrow: CGRect(x: 0.42, y: 0.38, width: 0.16, height: 0.16)
         case .box: CGRect(x: 0.35, y: 0.35, width: 0.3, height: 0.25)
         }
-        styling.overlays.append(Overlay(kind: kind, rect: rect, start: currentTime, end: min(item.duration, currentTime + 4), text: kind == .text ? "Texte" : ""))
+        let overlay = Overlay(kind: kind, rect: rect, start: currentTime, end: min(item.duration, currentTime + 4), text: kind == .text ? "Texte" : "")
+        styling.overlays.append(overlay)
+        selectedOverlay = overlay.id
         tab = .styling
     }
 

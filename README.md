@@ -62,7 +62,7 @@ cd App && swift test         # unit tests; set REEL_SAMPLE_VIDEO=/path/to/video.
 The app is signed with the first valid code signing identity on the Mac, so macOS keeps its
 permissions across rebuilds (set `REEL_SIGN_IDENTITY` to choose another one).
 
-Development helpers: `--demo panel|library|settings|onboarding|recording`, `--demo editor <video>`,
+Development helpers: `--demo panel|library|settings|onboarding|recording`, `--demo editor <video>` (with `--tab styling` and `--select-overlay`),
 `--selftest <report.json>`, `--transcribe <video> <report.json> [--ai]`.
 
 ## Layout
