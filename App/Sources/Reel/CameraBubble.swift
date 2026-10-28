@@ -50,6 +50,11 @@ final class CameraBubbleController {
     /// Called with the bubble's new frame once it has settled after a move or a change of shape.
     var onMove: ((NSRect) -> Void)?
 
+    /// The screen being recorded. The bubble stays on it, since a bubble on another screen would be missing from the video.
+    var recordedScreen: NSScreen? {
+        didSet { if let panel, panel.isVisible, recordedScreen != nil, panel.screen != recordedScreen { placeInCorner(panel, animated: false) } }
+    }
+
     var isVisible: Bool { panel?.isVisible ?? false }
     var frame: NSRect? { panel?.isVisible == true ? panel?.frame : nil }
 
@@ -96,6 +101,8 @@ final class CameraBubbleController {
         )
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        // A panel hides by default when its app is no longer active: a click on the desktop would take the bubble away.
+        panel.hidesOnDeactivate = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -148,7 +155,7 @@ final class CameraBubbleController {
     private static let margin = Theme.Layout.screenMargin
 
     private func corners(for panel: NSWindow) -> [NSPoint] {
-        guard let visible = (panel.screen ?? NSScreen.main)?.visibleFrame else { return [] }
+        guard let visible = (recordedScreen ?? panel.screen ?? NSScreen.main)?.visibleFrame else { return [] }
         let size = panel.frame.size
         let m = Self.margin
         return [

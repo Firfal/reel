@@ -207,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .camera, .screen:
             break
         }
+        bubble.recordedScreen = model.source == .window ? nil : NSScreen.main
         if model.cameraID != nil {
             let size: BubbleSize = model.source == .camera ? .large : bubbleSettings.size
             bubble.show(cameraID: model.cameraID, shape: bubbleSettings.shape, size: size)
@@ -241,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         blurBoxes.removeAll()
         teleprompter.hide()
         bubble.hide()
+        bubble.recordedScreen = nil
         statusItem?.button?.image = StatusIcon.idle
     }
 

@@ -15,7 +15,8 @@ final class BlurBoxes {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.isMovableByWindowBackground = true
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        window.hidesOnDeactivate = false
         window.minSize = NSSize(width: 60, height: 30)
 
         let blur = NSVisualEffectView()
