@@ -48,7 +48,7 @@ enum LibrarySection: Hashable {
 struct LibraryView: View {
     let model: AppModel
     @State private var items: [VideoItem] = []
-    @State private var section: LibrarySection = .all
+    @State private var section: LibrarySection = CommandLine.arguments.contains("--shared") ? .shared : .all  // --shared: screenshots
     @State private var selection: VideoItem.ID?
     @State private var search = ""
     @State private var importing = false
@@ -118,10 +118,11 @@ struct LibraryView: View {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20)], spacing: 24) {
                         ForEach(visible) { item in
-                            Button { selection = item.id } label: {
-                                VideoCard(item: item, folder: model.library.folder(for: item.id))
+                            Button { open(item) } label: {
+                                VideoCard(item: item, folder: model.library.folder(for: item.id), opensPage: section == .shared)
                             }
                             .buttonStyle(.plain)
+                            .help(section == .shared ? "Ouvrir la page de partage" : "Modifier la vidéo")
                             .contextMenu { contextMenu(for: item) }
                         }
                     }
@@ -170,15 +171,22 @@ struct LibraryView: View {
         }
     }
 
-    @ViewBuilder private func contextMenu(for item: VideoItem) -> some View {
-        Button("Ouvrir") { selection = item.id }
-        if let url = item.shareURL {
-            Button("Copier le lien") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url.absoluteString, forType: .string)
-            }
-            Button("Ouvrir dans le navigateur") { NSWorkspace.shared.open(url) }
+    /// In Partagées a video is its link: a click opens the page people watch. Everywhere else it opens the editor.
+    private func open(_ item: VideoItem) {
+        if section == .shared, let url = item.shareURL {
+            NSWorkspace.shared.open(url)
+        } else {
+            selection = item.id
         }
+    }
+
+    @ViewBuilder private func contextMenu(for item: VideoItem) -> some View {
+        if let url = item.shareURL {
+            Button("Ouvrir la page de partage") { NSWorkspace.shared.open(url) }
+            Button("Copier le lien") { ShareLinkText.copy(url) }
+        }
+        Button("Modifier") { selection = item.id }
+        Divider()
         Button("Afficher dans le Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([model.library.videoURL(for: item.id)])
         }
@@ -230,10 +238,26 @@ struct LibraryView: View {
     }
 }
 
+/// How a share link reads on a card, and copying it.
+enum ShareLinkText {
+    /// `reel.example.workers.dev/v/abc`, without the scheme nobody needs to read.
+    static func short(_ url: URL) -> String {
+        (url.host() ?? "") + url.path()
+    }
+
+    @MainActor static func copy(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
+}
+
 private struct VideoCard: View {
     let item: VideoItem
     let folder: URL
+    /// In Partagées: the link is the card's subject, shown in full with its copy button.
+    var opensPage = false
     @State private var hovering = false
+    @State private var copied = false
     /// Decoded once, at card size: AsyncImage would decode the full JPEG again after every hover.
     @State private var image: NSImage?
     @State private var hasPreview = false
@@ -267,12 +291,42 @@ private struct VideoCard: View {
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title).font(.callout.weight(.semibold)).lineLimit(1)
-                HStack(spacing: 4) {
-                    Text(item.createdAt, format: .dateTime.day().month(.abbreviated).hour().minute())
-                    if item.shareURL != nil { Image(systemName: "link") }
+                HStack(spacing: Theme.Spacing.small) {
+                    if opensPage, let url = item.shareURL {
+                        Text(ShareLinkText.short(url))
+                            .foregroundStyle(Theme.accentInk)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        HStack(spacing: 4) {
+                            Text(item.createdAt, format: .dateTime.day().month(.abbreviated).hour().minute())
+                            if item.shareURL != nil { Image(systemName: "link").accessibilityLabel("Partagée") }
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    if let url = item.shareURL {
+                        Button {
+                            ShareLinkText.copy(url)
+                            copied = true
+                        } label: {
+                            Label(copied ? "Copié" : "Copier le lien", systemImage: copied ? "checkmark" : "doc.on.doc")
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Theme.accentInk)
+                        .help(ShareLinkText.short(url))
+                        // Always there in Partagées; elsewhere on hover, so the grid stays quiet.
+                        .opacity(opensPage || hovering || copied ? 1 : 0)
+                        .task(id: copied) {
+                            guard copied else { return }
+                            try? await Task.sleep(for: .seconds(1.6))
+                            copied = false
+                        }
+                    }
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .frame(minHeight: 18)
             }
         }
         .contentShape(Rectangle())
