@@ -20,6 +20,11 @@ export function videoKey(id: string): string {
   return `videos/${id}/video.mp4`;
 }
 
+/** The address links are given at: the custom domain when one is set, otherwise the server's own. */
+async function linkOrigin(request: Request, env: Env): Promise<string> {
+  return (await getSettings(env)).publicURL || new URL(request.url).origin;
+}
+
 export async function isOwner(request: Request, env: Env): Promise<boolean> {
   const header = request.headers.get("Authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -143,7 +148,7 @@ export async function handleOwner(request: Request, env: Env, path: string[]): P
     if (columns.length) {
       await env.DB.prepare(`UPDATE videos SET ${columns.join(", ")} WHERE id = ?`).bind(...values, slug).run();
     }
-    const origin = new URL(request.url).origin;
+    const origin = await linkOrigin(request, env);
     return Response.json({ id: slug, partSize: PART_SIZE, url: `${origin}/v/${slug}` }, { status: 201 });
   }
 
@@ -164,7 +169,7 @@ export async function handleOwner(request: Request, env: Env, path: string[]): P
     await env.DB.prepare(`UPDATE videos SET ${["upload_id = ?", ...columns].join(", ")} WHERE id = ?`)
       .bind(upload.uploadId, ...values, id)
       .run();
-    const origin = new URL(request.url).origin;
+    const origin = await linkOrigin(request, env);
     return Response.json({ id, partSize: PART_SIZE, url: `${origin}/v/${id}` });
   }
 

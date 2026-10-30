@@ -113,7 +113,8 @@ var DEFAULTS = {
   playerColor: "#E2703A",
   hasLogo: false,
   logoVersion: 0,
-  defaultPrivacy: "unlisted"
+  defaultPrivacy: "unlisted",
+  publicURL: ""
 };
 async function getSettings(env) {
   const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'workspace'").first();
@@ -124,6 +125,7 @@ async function putSettings(env, changes) {
   const next = { ...await getSettings(env), ...changes };
   if (!/^#[0-9a-fA-F]{6}$/.test(next.playerColor)) next.playerColor = DEFAULTS.playerColor;
   next.companyName = String(next.companyName).slice(0, 80);
+  next.publicURL = /^https:\/\/[a-z0-9.-]+$/i.test(String(next.publicURL ?? "").replace(/\/+$/, "")) ? String(next.publicURL).replace(/\/+$/, "") : "";
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('workspace', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(JSON.stringify(next)).run();
   return next;
 }
@@ -148,6 +150,10 @@ function videoKey(id) {
   return `videos/${id}/video.mp4`;
 }
 __name(videoKey, "videoKey");
+async function linkOrigin(request, env) {
+  return (await getSettings(env)).publicURL || new URL(request.url).origin;
+}
+__name(linkOrigin, "linkOrigin");
 async function isOwner(request, env) {
   const header = request.headers.get("Authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -243,7 +249,7 @@ async function handleOwner(request, env, path) {
     if (columns.length) {
       await env.DB.prepare(`UPDATE videos SET ${columns.join(", ")} WHERE id = ?`).bind(...values, slug).run();
     }
-    const origin = new URL(request.url).origin;
+    const origin = await linkOrigin(request, env);
     return Response.json({ id: slug, partSize: PART_SIZE, url: `${origin}/v/${slug}` }, { status: 201 });
   }
   if (!id) throw new HttpError(405, "Method not allowed.");
@@ -259,7 +265,7 @@ async function handleOwner(request, env, path) {
     const upload = await env.VIDEOS.createMultipartUpload(videoKey(id), { httpMetadata: { contentType: "video/mp4" } });
     const [columns, values] = await metadataUpdates(body);
     await env.DB.prepare(`UPDATE videos SET ${["upload_id = ?", ...columns].join(", ")} WHERE id = ?`).bind(upload.uploadId, ...values, id).run();
-    const origin = new URL(request.url).origin;
+    const origin = await linkOrigin(request, env);
     return Response.json({ id, partSize: PART_SIZE, url: `${origin}/v/${id}` });
   }
   if (path[2] === "parts" && method === "PUT") {
@@ -620,17 +626,15 @@ async function handleViewer(request, env, path, embed) {
   const method = request.method;
   if (action === "unlock" && method === "POST") {
     const { password = "" } = await form(request);
-    const location = new URL(request.url);
-    location.pathname = `/${embed ? "embed" : "v"}/${id}`;
+    const location = `/${embed ? "embed" : "v"}/${id}`;
     if (!video.password_hash || !await verifyPassword(password, video.password_hash)) {
-      location.searchParams.set("wrong", "1");
-      return Response.redirect(location.toString(), 303);
+      return new Response(null, { status: 303, headers: { Location: `${location}?wrong=1` } });
     }
     const token = await accessToken(env.SIGNING_KEY, id, video.password_hash);
     return new Response(null, {
       status: 303,
       headers: {
-        Location: location.toString(),
+        Location: location,
         "Set-Cookie": `${cookieName(id)}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`
       }
     });

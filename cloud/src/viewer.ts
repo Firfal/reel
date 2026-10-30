@@ -81,17 +81,16 @@ export async function handleViewer(request: Request, env: Env, path: string[], e
   // POST /v/:id/unlock (password form)
   if (action === "unlock" && method === "POST") {
     const { password = "" } = await form(request);
-    const location = new URL(request.url);
-    location.pathname = `/${embed ? "embed" : "v"}/${id}`;
+    // Relative, so a viewer who came through a custom domain stays on it.
+    const location = `/${embed ? "embed" : "v"}/${id}`;
     if (!video.password_hash || !(await verifyPassword(password, video.password_hash))) {
-      location.searchParams.set("wrong", "1");
-      return Response.redirect(location.toString(), 303);
+      return new Response(null, { status: 303, headers: { Location: `${location}?wrong=1` } });
     }
     const token = await accessToken(env.SIGNING_KEY, id, video.password_hash);
     return new Response(null, {
       status: 303,
       headers: {
-        Location: location.toString(),
+        Location: location,
         "Set-Cookie": `${cookieName(id)}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
       },
     });

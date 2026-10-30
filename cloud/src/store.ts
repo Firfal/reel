@@ -28,6 +28,8 @@ export type Settings = {
   logoVersion: number;
   /** Privacy given to new videos. */
   defaultPrivacy: "public" | "unlisted" | "password";
+  /** Where links point when the server sits behind another address, such as a custom domain on a relay. Empty: its own address. */
+  publicURL: string;
 };
 
 const DEFAULTS: Settings = {
@@ -36,6 +38,7 @@ const DEFAULTS: Settings = {
   hasLogo: false,
   logoVersion: 0,
   defaultPrivacy: "unlisted",
+  publicURL: "",
 };
 
 export async function getSettings(env: Env): Promise<Settings> {
@@ -47,6 +50,7 @@ export async function putSettings(env: Env, changes: Partial<Settings>): Promise
   const next = { ...(await getSettings(env)), ...changes };
   if (!/^#[0-9a-fA-F]{6}$/.test(next.playerColor)) next.playerColor = DEFAULTS.playerColor;
   next.companyName = String(next.companyName).slice(0, 80);
+  next.publicURL = /^https:\/\/[a-z0-9.-]+$/i.test(String(next.publicURL ?? "").replace(/\/+$/, "")) ? String(next.publicURL).replace(/\/+$/, "") : "";
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('workspace', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .bind(JSON.stringify(next))
     .run();
