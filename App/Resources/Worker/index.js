@@ -248,10 +248,24 @@ async function handleOwner(request, env, path) {
   }
   if (!id) throw new HttpError(405, "Method not allowed.");
   const video = await loadVideo(env, id);
+  if (path[2] === "replace" && method === "POST") {
+    const body = await readJSON(request);
+    const sizeBytes = Number(body.sizeBytes);
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) throw new HttpError(400, "sizeBytes is required.");
+    await assertStorageFor(env, Math.max(0, sizeBytes - video.size_bytes));
+    await spendOps(env, "write");
+    if (video.upload_id) await env.VIDEOS.resumeMultipartUpload(videoKey(id), video.upload_id).abort().catch(() => {
+    });
+    const upload = await env.VIDEOS.createMultipartUpload(videoKey(id), { httpMetadata: { contentType: "video/mp4" } });
+    const [columns, values] = await metadataUpdates(body);
+    await env.DB.prepare(`UPDATE videos SET ${["upload_id = ?", ...columns].join(", ")} WHERE id = ?`).bind(upload.uploadId, ...values, id).run();
+    const origin = new URL(request.url).origin;
+    return Response.json({ id, partSize: PART_SIZE, url: `${origin}/v/${id}` });
+  }
   if (path[2] === "parts" && method === "PUT") {
     const partNumber = Number(path[3]);
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 1e4) throw new HttpError(400, "Invalid part number.");
-    if (!video.upload_id || video.status !== "uploading") throw new HttpError(409, "No upload in progress.");
+    if (!video.upload_id) throw new HttpError(409, "No upload in progress.");
     contentLength(request, MAX_PART_BYTES);
     await spendOps(env, "write");
     const upload = env.VIDEOS.resumeMultipartUpload(videoKey(id), video.upload_id);
@@ -358,12 +372,12 @@ var ICONS = {
   full: `<svg viewBox="0 0 16 16"><path d="M2 2h4v1.5H3.5V6H2zm8 0h4v4h-1.5V3.5H10zM2 10h1.5v2.5H6V14H2zm10.5 0H14v4h-4v-1.5h2.5z"/></svg>`
 };
 function player(video) {
-  const poster = video.has_thumbnail ? `poster="/v/${video.id}/thumbnail"` : "";
+  const poster = video.has_thumbnail ? `poster="/v/${video.id}/thumbnail?v=${video.size_bytes}"` : "";
   const captions = video.captions ? `<track kind="captions" srclang="fr" label="Fran\xE7ais" src="/v/${video.id}/captions.vtt">` : "";
   return `
   <div class="stage" id="stage">
     <video id="video" playsinline preload="metadata" ${poster}>
-      <source src="/v/${video.id}/video" type="video/mp4">${captions}
+      <source src="/v/${video.id}/video?v=${video.size_bytes}" type="video/mp4">${captions}
     </video>
     <div id="overlay" class="overlay"></div>
     <div class="controls">
@@ -394,7 +408,7 @@ function playerPage(video, settings, embed) {
   }
   return `${HEAD(video.title)}
 <meta property="og:title" content="${escapeHTML(video.title)}">
-${video.has_thumbnail ? `<meta property="og:image" content="/v/${video.id}/thumbnail">` : ""}
+${video.has_thumbnail ? `<meta property="og:image" content="/v/${video.id}/thumbnail?v=${video.size_bytes}">` : ""}
 <style>${BASE_CSS}${PLAYER_CSS}
 header{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:60px;padding:14px max(20px,env(safe-area-inset-right)) 14px max(20px,env(safe-area-inset-left))}
 .badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}

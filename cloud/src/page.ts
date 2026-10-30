@@ -62,12 +62,12 @@ const ICONS = {
 };
 
 function player(video: VideoRow): string {
-  const poster = video.has_thumbnail ? `poster="/v/${video.id}/thumbnail"` : "";
+  const poster = video.has_thumbnail ? `poster="/v/${video.id}/thumbnail?v=${video.size_bytes}"` : "";
   const captions = video.captions ? `<track kind="captions" srclang="fr" label="Français" src="/v/${video.id}/captions.vtt">` : "";
   return `
   <div class="stage" id="stage">
     <video id="video" playsinline preload="metadata" ${poster}>
-      <source src="/v/${video.id}/video" type="video/mp4">${captions}
+      <source src="/v/${video.id}/video?v=${video.size_bytes}" type="video/mp4">${captions}
     </video>
     <div id="overlay" class="overlay"></div>
     <div class="controls">
@@ -101,7 +101,7 @@ export function playerPage(video: VideoRow, settings: Settings, embed: boolean):
 
   return `${HEAD(video.title)}
 <meta property="og:title" content="${escapeHTML(video.title)}">
-${video.has_thumbnail ? `<meta property="og:image" content="/v/${video.id}/thumbnail">` : ""}
+${video.has_thumbnail ? `<meta property="og:image" content="/v/${video.id}/thumbnail?v=${video.size_bytes}">` : ""}
 <style>${BASE_CSS}${PLAYER_CSS}
 header{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:60px;padding:14px max(20px,env(safe-area-inset-right)) 14px max(20px,env(safe-area-inset-left))}
 .badge{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}

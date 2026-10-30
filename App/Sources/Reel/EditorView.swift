@@ -435,7 +435,8 @@ struct EditorView: View {
             if let transcript { metadata.captions = Captions.webVTT(from: transcript, edit: edit, duration: item.duration) }
             let client = CloudClient(account: account)
             sharing = .uploading(0)
-            let uploaded = try await client.upload(upload, metadata: metadata) { value in
+            // A new cut replaces the video behind the link already sent, instead of making a new one.
+            let uploaded = try await client.upload(upload, metadata: metadata, replacing: shareURL?.lastPathComponent) { value in
                 Task { @MainActor in sharing = .uploading(value) }
             }
             if let thumbnail = try? Data(contentsOf: folder.appendingPathComponent("thumbnail.jpg")) {
@@ -445,8 +446,6 @@ struct EditorView: View {
                 try? await client.uploadPreview(preview, videoID: uploaded.id)
             }
             if upload != source { try? FileManager.default.removeItem(at: upload) }
-            // Only once the new video is online: if the upload fails, the old link still works.
-            if let previous = shareURL?.lastPathComponent, previous != uploaded.id { try? await client.delete(videoID: previous) }
             var copy = item
             copy.title = title
             copy.shareURL = uploaded.url

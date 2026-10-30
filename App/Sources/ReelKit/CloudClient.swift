@@ -99,17 +99,28 @@ public struct CloudClient: Sendable {
     }
 
     /// Uploads `fileURL` in parts and returns the public link. `progress` receives 0...1.
+    /// With `replacing`, the new cut goes behind that video's link, so links already sent keep working;
+    /// if the server no longer has that video, a new link is created.
     @concurrent
     public func upload(
         _ fileURL: URL,
         metadata: ShareMetadata,
+        replacing previousID: String? = nil,
         progress: @Sendable (Double) -> Void = { _ in }
     ) async throws -> (id: String, url: URL) {
         let size = try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64 ?? 0
         struct Created: Decodable { let id: String; let partSize: Int; let url: URL }
         var body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(metadata)) as? [String: Any] ?? [:]
         body["sizeBytes"] = size
-        let created: Created = try await send("POST", "api/videos", json: body)
+        var replaced: Created?
+        if let previousID {
+            do {
+                replaced = try await send("POST", "api/videos/\(previousID)/replace", json: body)
+            } catch CloudError.server(status: 404, message: _) {
+                replaced = nil
+            }
+        }
+        let created: Created = if let replaced { replaced } else { try await send("POST", "api/videos", json: body) }
 
         struct Part: Codable { let partNumber: Int; let etag: String }
         var parts: [Part] = []

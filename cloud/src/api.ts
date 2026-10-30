@@ -150,11 +150,29 @@ export async function handleOwner(request: Request, env: Env, path: string[]): P
   if (!id) throw new HttpError(405, "Method not allowed.");
   const video = await loadVideo(env, id);
 
+  // POST /api/videos/:id/replace { sizeBytes, ...metadata } -> a new cut of the video behind the same link.
+  // R2 swaps the object only when the multipart upload completes, so viewers keep the previous cut until then.
+  if (path[2] === "replace" && method === "POST") {
+    const body = await readJSON<Metadata & { sizeBytes: number }>(request);
+    const sizeBytes = Number(body.sizeBytes);
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) throw new HttpError(400, "sizeBytes is required.");
+    await assertStorageFor(env, Math.max(0, sizeBytes - video.size_bytes));
+    await spendOps(env, "write");
+    if (video.upload_id) await env.VIDEOS.resumeMultipartUpload(videoKey(id), video.upload_id).abort().catch(() => {});
+    const upload = await env.VIDEOS.createMultipartUpload(videoKey(id), { httpMetadata: { contentType: "video/mp4" } });
+    const [columns, values] = await metadataUpdates(body);
+    await env.DB.prepare(`UPDATE videos SET ${["upload_id = ?", ...columns].join(", ")} WHERE id = ?`)
+      .bind(upload.uploadId, ...values, id)
+      .run();
+    const origin = new URL(request.url).origin;
+    return Response.json({ id, partSize: PART_SIZE, url: `${origin}/v/${id}` });
+  }
+
   // PUT /api/videos/:id/parts/:n
   if (path[2] === "parts" && method === "PUT") {
     const partNumber = Number(path[3]);
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) throw new HttpError(400, "Invalid part number.");
-    if (!video.upload_id || video.status !== "uploading") throw new HttpError(409, "No upload in progress.");
+    if (!video.upload_id) throw new HttpError(409, "No upload in progress.");
     contentLength(request, MAX_PART_BYTES);
     await spendOps(env, "write");
     const upload = env.VIDEOS.resumeMultipartUpload(videoKey(id), video.upload_id);
